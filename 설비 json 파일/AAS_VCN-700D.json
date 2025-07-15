@@ -1,0 +1,375 @@
+{
+    "assetAdministrationShells": [
+        {
+            "idShort": "MachineTool",
+            "modelType": {
+                "name": "AssetAdministrationShell"
+            },
+            "identification": {
+                "id": "http://localhost:8080/aashell",
+                "idType": "Custom"
+            },
+            "asset": {
+                "keys": [
+                    {
+                        "type": "Asset",
+                        "idType": "Custom",
+                        "value": "localhost:8080/asset/",
+                        "local": true
+                    }
+                ]
+            },
+            "submodels": [
+                {
+                    "keys": [
+                        {
+                            "type": "Submodel",
+                            "idType": "Custom",
+                            "value": "localhost:8080/Submodel/OperationalData",
+                            "local": true
+                        }
+                    ]
+                },
+                {
+                    "keys": [
+                        {
+                            "type": "Submodel",
+                            "idType": "Custom",
+                            "value": "localhost:8080/Submodel/Nameplate",
+                            "local": true
+                        }
+                    ]
+                },
+                {
+                    "keys": [
+                        {
+                            "type": "Submodel",
+                            "idType": "Custom",
+                            "value": "localhost:8080/Submodel/TechnicalData",
+                            "local": true
+                        }
+                    ]
+                },
+                {
+                    "keys": [
+                        {
+                            "type": "Submodel",
+                            "idType": "Custom",
+                            "value": "localhost:8080/Submodel/Category",
+                            "local": true
+                        }
+                    ]
+                },
+                {
+                    "keys": [
+                        {
+                            "type": "Submodel",
+                            "idType": "Custom",
+                            "value": "localhost:8080/Submodel/Documentation",
+                            "local": true
+                        }
+                    ]
+                },
+                {
+                    "keys": [
+                        {
+                            "type": "Submodel",
+                            "idType": "Custom",
+                            "value": "localhost:8080/Submodel/Size",
+                            "local": true
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "submodels": [
+        {
+            "idShort": "Category",
+            "modelType": {
+                "name": "Submodel"
+            },
+            "identification": {
+                "id": "localhost:8080/Submodel/Category",
+                "idType": "Custom"
+            },
+            "semanticId": {
+                "keys": [
+                    {
+                        "type": "GlobalReference",
+                        "idType": "IRDI",
+                        "value": "0173-1#02-AAO702#006",
+                        "local": true
+                    }
+                ]
+            },
+            "submodelElements": [
+                {
+                    "idShort": "Type",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#01-AKJ819#007",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "Vertical Machining Center",
+                    "valueType": "string"
+                }
+            ]
+        },
+        {
+            "idShort": "Size",
+            "modelType": {
+                "name": "Submodel"
+            },
+            "identification": {
+                "id": "localhost:8080/Submodel/Size",
+                "idType": "Custom"
+            },
+            "submodelElements": [
+                {
+                    "idShort": "Processing_Size",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-AAP813#002",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "1740mm x 700mm",
+                    "valueType": "string"
+                }
+            ]
+        },
+        {
+            "idShort": "Operational_Data",
+            "modelType": {
+                "name": "Submodel"
+            },
+            "identification": {
+                "id": "localhost:8080/Submodel/OperationalData",
+                "idType": "Custom"
+            },
+            "submodelElements": [
+                {
+                    "idShort": "Machine_Status",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-BAG100#003",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "Running",
+                    "valueType": "string"
+                }
+            ]
+        },
+        {
+            "idShort": "Nameplate",
+            "modelType": {
+                "name": "Submodel"
+            },
+            "identification": {
+                "id": "localhost:8080/Submodel/Nameplate",
+                "idType": "Custom"
+            },
+            "semanticId": {
+                "keys": [
+                    {
+                        "type": "GlobalReference",
+                        "idType": "IRDI",
+                        "value": "0173-1#01-AFZ615#016",
+                        "local": true
+                    }
+                ]
+            },
+            "submodelElements": [
+                {
+                    "idShort": "Physical_address",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-BAI582#002",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "11758 S Austin Ave, Alsip, IL 60803 USA",
+                    "valueType": "string"
+                },
+                {
+                    "idShort": "Company",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-AAO059#001",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "KOCSIS",
+                    "valueType": "string"
+                },
+                {
+                    "idShort": "Manufacturer",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-AAO677#002",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "MAZAK",
+                    "valueType": "string"
+                }
+            ]
+        },
+        {
+            "idShort": "Documentation",
+            "modelType": {
+                "name": "Submodel"
+            },
+            "identification": {
+                "id": "localhost:8080/Submodel/Documentation",
+                "idType": "Custom"
+            },
+            "submodelElements": [
+                {
+                    "idShort": "Drawing",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#01-AFY445#007",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "localhost:8080/aasx/Drawing.pdf",
+                    "valueType": "string"
+                }
+            ]
+        },
+        {
+            "idShort": "Technical_Data",
+            "modelType": {
+                "name": "Submodel"
+            },
+            "identification": {
+                "id": "localhost:8080/Submodel/TechnicalData",
+                "idType": "Custom"
+            },
+            "submodelElements": [
+                {
+                    "idShort": "Travel_distance",
+                    "category": "XYZ",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-BAI019#004",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "1530mm x 700mm x 650mm",
+                    "valueType": "string"
+                },
+                {
+                    "idShort": "Spindle_Speed",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-AAB989#008",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "8000RPM",
+                    "valueType": "string"
+                },
+                {
+                    "idShort": "Spindle_motor",
+                    "modelType": {
+                        "name": "Property"
+                    },
+                    "semanticId": {
+                        "keys": [
+                            {
+                                "type": "ConceptDescription",
+                                "idType": "IRDI",
+                                "value": "0173-1#02-AAH856#003",
+                                "local": true
+                            }
+                        ]
+                    },
+                    "value": "30KW",
+                    "valueType": "string"
+                }
+            ]
+        }
+    ],
+    "assets": [
+        {
+            "idShort": "VCN-700D",
+            "modelType": {
+                "name": "Asset"
+            },
+            "identification": {
+                "id": "localhost:8080/asset/",
+                "idType": "Custom"
+            },
+            "kind": "Instance"
+        }
+    ],
+    "conceptDescriptions": []
+}
