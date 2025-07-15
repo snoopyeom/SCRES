@@ -9,7 +9,7 @@ grid so the result can be visualised without additional libraries.
 
 import argparse
 import os
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
 
 from graph import Graph, Node
@@ -33,7 +33,6 @@ def load_aas_files(directory: str):
     """
 
     if read_aas_json_file is None:
-        print("basyx-python-sdk is not installed. Skipping AAS loading.")
         return []
 
     shells = []
@@ -42,7 +41,9 @@ def load_aas_files(directory: str):
             continue
         path = os.path.join(directory, name)
         try:
-            with open(path, "r", encoding="utf-8") as f, redirect_stdout(StringIO()):
+            # Suppress noisy warnings emitted by the basyx reader
+            with open(path, "r", encoding="utf-8") as f, \
+                 redirect_stdout(StringIO()), redirect_stderr(StringIO()):
                 shells.append(read_aas_json_file(f))
         except Exception:
             # Ignore malformed AAS files to keep output clean
