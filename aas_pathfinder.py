@@ -17,9 +17,9 @@ except Exception:  # pragma: no cover - geopy may not be installed
 
 
 def _find_address(elements):
-    """Recursively search for a Property with idShort 'Location' or 'Address'."""
+    """Recursively search for a Property with an address idShort."""
     for elem in elements:
-        if elem.get("idShort") in {"Location", "Address"}:
+        if elem.get("idShort") in {"Location", "Address", "Physical_address"}:
             val = elem.get("value")
             if isinstance(val, str):
                 return val
