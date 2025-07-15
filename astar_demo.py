@@ -9,6 +9,8 @@ grid so the result can be visualised without additional libraries.
 
 import argparse
 import os
+from contextlib import redirect_stdout
+from io import StringIO
 
 from graph import Graph, Node
 from a_star import AStar
@@ -40,10 +42,11 @@ def load_aas_files(directory: str):
             continue
         path = os.path.join(directory, name)
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f, redirect_stdout(StringIO()):
                 shells.append(read_aas_json_file(f))
-        except Exception as exc:  # noqa: BLE001 - best effort loading
-            print(f"Failed to load {name}: {exc}")
+        except Exception:
+            # Ignore malformed AAS files to keep output clean
+            continue
     return shells
 
 
@@ -95,10 +98,8 @@ def run_demo():
     args = parser.parse_args()
 
     shells = load_aas_files(args.aas_dir)
-    for shell in shells:
-        id_short = getattr(shell, "id_short", "<unknown>")
-        submodels = [getattr(sm, "id_short", "?") for sm in getattr(shell, "submodels", [])]
-        print(f"Loaded {id_short}: {', '.join(submodels)}")
+    if shells:
+        print(f"Loaded {len(shells)} AAS file(s) from '{args.aas_dir}'.")
 
     graph = build_graph()
     alg = AStar(graph, 'S', 'T')
