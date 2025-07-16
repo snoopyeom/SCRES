@@ -71,6 +71,7 @@ class Machine:
     coords: Tuple[float, float]
     process: str
     status: str
+    address: str
 
 
 def _find_address(elements):
@@ -199,7 +200,7 @@ def load_machines(directory: str) -> Dict[str, Machine]:
             else:
                 continue
 
-        machine = Machine(node_name, latlon, process, status)
+        machine = Machine(node_name, latlon, process, status, address)
         if machine.status.lower() == "running":
             logger.debug("  Added running machine: %s", machine)
             machines[node_name] = machine
@@ -276,6 +277,15 @@ def main():
         {k: [m.name for m in v] for k, v in by_process.items()},
     )
 
+    # Print available machine counts per process
+    logger.info("Available machines by process:")
+    for step in ["Forging", "Turning", "Milling", "Grinding", "Assembly"]:
+        names = [m.name for m in by_process.get(step, [])]
+        if names:
+            logger.info("  %s: %d", step, len(names))
+        else:
+            logger.info("  %s: none", step)
+
     flow = ["Forging", "Turning", "Milling", "Grinding", "Assembly"]
     selected: List[Machine] = []
 
@@ -303,7 +313,25 @@ def main():
         logger.info("No machines selected for the flow.")
         return
 
+    logger.info("\nSelected machines:")
+    for mach in selected:
+        logger.info(
+            "  %s (%s)\n    %s\n    lat %.3f, lon %.3f",
+            mach.name,
+            mach.process,
+            mach.address,
+            mach.coords[0],
+            mach.coords[1],
+        )
+
     logger.info(" → ".join(m.name for m in selected))
+
+    total_dist = 0.0
+    for a, b in zip(selected, selected[1:]):
+        d = haversine(a.coords[0], a.coords[1], b.coords[0], b.coords[1])
+        total_dist += d
+        logger.info("%s → %s: %.1f km", a.name, b.name, d)
+    logger.info("Total distance: %.1f km", total_dist)
     try:
         import folium
 
