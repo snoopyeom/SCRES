@@ -233,6 +233,53 @@ def build_graph_from_aas(coords: Dict[str, Tuple[float, float]]) -> Graph:
     return graph
 
 
+def path_distance(graph: Graph, path: List[str]) -> float:
+    total = 0.0
+    for a, b in zip(path, path[1:]):
+        node = graph.find_node(a)
+        for neigh, w in node.neighbors:
+            if neigh.value == b:
+                total += w
+                break
+    return total
+
+
+def dijkstra_path(graph: Graph, start: str, goal: str) -> Tuple[List[str], float]:
+    from heapq import heappush, heappop
+
+    start_node = graph.find_node(start)
+    goal_node = graph.find_node(goal)
+    queue = [(0.0, start_node)]
+    dist = {start_node.value: 0.0}
+    prev: Dict[str, str] = {}
+    visited = set()
+
+    while queue:
+        d, node = heappop(queue)
+        if node.value in visited:
+            continue
+        visited.add(node.value)
+        if node == goal_node:
+            break
+        for neigh, w in node.neighbors:
+            nd = d + w
+            if nd < dist.get(neigh.value, float("inf")):
+                dist[neigh.value] = nd
+                prev[neigh.value] = node.value
+                heappush(queue, (nd, neigh))
+
+    if goal_node.value not in dist:
+        return [], float("inf")
+
+    path = [goal]
+    cur = goal
+    while cur != start:
+        cur = prev[cur]
+        path.append(cur)
+    path.reverse()
+    return path, dist[goal]
+
+
 def main():
     parser = argparse.ArgumentParser(description="AAS path finder")
     parser.add_argument(
@@ -326,9 +373,13 @@ def main():
 
     logger.info(" → ".join(m.name for m in selected))
 
+    coords = {m.name: m.coords for m in selected}
+    graph = build_graph_from_aas(coords)
+
     total_dist = 0.0
+    logger.info("\nSegment distances:")
     for a, b in zip(selected, selected[1:]):
-        d = haversine(a.coords[0], a.coords[1], b.coords[0], b.coords[1])
+        path, d = dijkstra_path(graph, a.name, b.name)
         total_dist += d
         logger.info("%s → %s: %.1f km", a.name, b.name, d)
     logger.info("Total distance: %.1f km", total_dist)
