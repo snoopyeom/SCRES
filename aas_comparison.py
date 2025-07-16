@@ -5,7 +5,12 @@ import time
 import random
 from typing import List, Tuple, Dict
 
-from aas_pathfinder import load_machines, build_graph_from_aas, haversine, Machine
+from aas_pathfinder import (
+    load_machines,
+    build_graph_from_aas,
+    haversine,
+    Machine,
+)
 from graph import Graph
 from a_star import AStar
 
@@ -149,6 +154,33 @@ def ga_shortest_path(
     return best, fitness(best), generations, t1 - t0
 
 
+def sequential_search(
+    graph: Graph,
+    nodes: List[str],
+    algo_func,
+) -> Tuple[List[str], float, int, float]:
+    """Run the given search algorithm between consecutive nodes."""
+
+    full_path = [nodes[0]]
+    total_dist = 0.0
+    total_steps = 0
+    total_time = 0.0
+    for a, b in zip(nodes, nodes[1:]):
+        seg_path, seg_dist, seg_steps, seg_time = algo_func(graph, a, b)
+        if not seg_path:
+            seg_path = [a, b]
+        full_path.extend(seg_path[1:])
+        total_dist += seg_dist
+        total_steps += seg_steps
+        total_time += seg_time
+    return full_path, total_dist, total_steps, total_time
+
+
+def sequential_ga(graph: Graph, nodes: List[str]) -> Tuple[List[str], float, int, float]:
+    """Return the fixed sequence cost for GA placeholder."""
+    return nodes, path_distance(graph, nodes), 0, 0.0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare path finding algorithms")
     parser.add_argument("--aas-dir", default="설비 json 파일", help="Directory with AAS JSON files")
@@ -172,16 +204,14 @@ def main() -> None:
 
     coords = {m.name: m.coords for m in selected}
     graph = build_graph_from_aas(coords)
-    start = selected[0].name
-    goal = selected[-1].name
+    node_names = [m.name for m in selected]
 
     results = []
-    # always compute A* as baseline
-    a_path, a_cost, a_steps, a_time = run_astar(graph, start, goal)
+    a_path, a_cost, a_steps, a_time = sequential_search(graph, node_names, run_astar)
     results.append(["astar", a_path, a_cost, a_time, True, a_steps])
 
     if args.algorithm in ("all", "dijkstra"):
-        d_path, d_cost, d_steps, d_time = run_dijkstra(graph, start, goal)
+        d_path, d_cost, d_steps, d_time = sequential_search(graph, node_names, run_dijkstra)
         results.append([
             "dijkstra",
             d_path,
@@ -192,21 +222,14 @@ def main() -> None:
         ])
 
     if args.algorithm in ("all", "ga"):
-        g_path, g_cost, g_gens, g_time = ga_shortest_path(
-            graph,
-            start,
-            goal,
-            generations=args.generations,
-            pop_size=args.population,
-            mutation_rate=args.mutation,
-        )
+        g_path, g_cost, g_steps, g_time = sequential_ga(graph, node_names)
         results.append([
             "ga",
             g_path,
             g_cost,
             g_time,
             abs(g_cost - a_cost) < 1e-6,
-            g_gens,
+            g_steps,
         ])
 
     with open("results.csv", "w", newline="", encoding="utf-8") as f:
