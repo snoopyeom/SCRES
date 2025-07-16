@@ -194,12 +194,10 @@ class AStar:
       -------
         list
     """
-    path = [target_node.value]
-    node = target_node.parent
-    while True:
+    path = []
+    node = target_node
+    while node is not None:
       path.append(node.value)
-      if node.parent is None:
-        break
       node = node.parent
     return path
 
@@ -238,42 +236,40 @@ class AStar:
       ------
         list
     """
-    # Calculate the heuristic value of the starting node
-    # The distance from the starting node is 0 so only manhattan_distance is calculated
+    """Perform the A* search and return the found path and its cost."""
+    # Reset node metadata in case the graph was used previously
+    for node in self.graph.nodes:
+      node.parent = None
+      node.distance_from_start = float('inf')
+      node.heuristic_value = -1
+    self.opened = []
+    self.closed = []
+
+    from heapq import heappush, heappop
+
     self.start.distance_from_start = 0
-    self.start.heuristic_value = self.manhattan_distance(self.start, self.target)
-    # Add the starting point to opened list
-    self.opened.append(self.start)
+    start_h = self.manhattan_distance(self.start, self.target)
+    heappush(self.opened, (start_h, self.start))
 
-    while True:
+    while self.opened:
       self.number_of_steps += 1
-
-      if self.opened_is_empty():
-        print(f"No Solution Found after {self.number_of_steps} steps!!!")
-        break
-        
-      selected_node = self.remove_from_opened()
-      # print(f"Selected Node {selected_node} has parent {selected_node.parent}")
-      # check if the selected_node is the solution
-      if selected_node == self.target:
-        path = self.calculate_path(selected_node)
-        total_cost = self.calculate_cost(path)
+      _, current = heappop(self.opened)
+      if current in self.closed:
+        continue
+      if current == self.target:
+        path = self.calculate_path(current)
+        cost = self.calculate_cost(path)
         path.reverse()
-        return path, total_cost
+        return path, cost
+      self.closed.append(current)
 
-      # extend the node
-      new_nodes = selected_node.extend_node()
+      for neighbor, weight in current.neighbors:
+        tentative = current.distance_from_start + weight
+        if tentative < neighbor.distance_from_start:
+          neighbor.distance_from_start = tentative
+          neighbor.parent = current
+          f = tentative + self.manhattan_distance(neighbor, self.target)
+          neighbor.heuristic_value = f
+          heappush(self.opened, (f, neighbor))
 
-      # add the extended nodes in the list opened
-      if len(new_nodes) > 0:
-        for new_node in new_nodes:
-          
-          new_node.heuristic_value = self.calculate_heuristic_value(selected_node, new_node, self.target)
-          if new_node not in self.closed and new_node not in self.opened:
-            new_node.parent = selected_node
-            self.insert_to_list("open", new_node)
-          elif new_node in self.opened and new_node.parent != selected_node:
-            old_node = self.get_old_node(new_node.value)
-            if new_node.heuristic_value < old_node.heuristic_value:
-              new_node.parent = selected_node
-              self.insert_to_opened(new_node)
+    return [], float('inf')
