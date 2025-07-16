@@ -2,8 +2,9 @@ import argparse
 import json
 import os
 from math import radians, sin, cos, sqrt, atan2
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
+from dataclasses import dataclass
 from graph import Graph, Node
 from a_star import AStar
 
@@ -42,6 +43,21 @@ ADDRESS_COORDS: Dict[str, Tuple[float, float]] = {
     "2904 Scott Blvd, Santa Clara, California": (37.369, -121.972),
 }
 
+# Mapping of IRDI codes to process steps
+IRDI_PROCESS_MAP = {
+    "0173-1#01-AKJ741#017": "Turning",
+    "0173-1#01-AKJ783#017": "Milling",
+    "0173-1#01-AKJ867#017": "Grinding",
+}
+
+
+@dataclass
+class Machine:
+    name: str
+    coords: Tuple[float, float]
+    process: str
+    status: str
+
 
 def _find_address(elements):
     """Recursively search for a Property with an address idShort."""
@@ -57,9 +73,24 @@ def _find_address(elements):
     return None
 
 
-def load_aas_files(directory: str) -> Dict[str, Tuple[float, float]]:
-    """Load AAS JSON files and convert addresses to coordinates."""
-    coords: Dict[str, Tuple[float, float]] = {}
+def _find_status(elements):
+    """Recursively search for a Property with an idShort containing 'status'."""
+    for elem in elements:
+        id_short = elem.get("idShort", "").lower()
+        if "status" in id_short:
+            val = elem.get("value")
+            if isinstance(val, str):
+                return val
+        if isinstance(elem.get("submodelElements"), list):
+            status = _find_status(elem["submodelElements"])
+            if status:
+                return status
+    return None
+
+
+def load_machines(directory: str) -> Dict[str, Machine]:
+    """Load AAS JSON files and return running machines with coordinates."""
+    machines: Dict[str, Machine] = {}
     geolocator = Nominatim(user_agent="aas_pathfinder") if Nominatim else None
 
     for name in os.listdir(directory):
@@ -76,14 +107,25 @@ def load_aas_files(directory: str) -> Dict[str, Tuple[float, float]]:
         if not shells:
             continue
         shell = shells[0]
-        # use file name as node identifier to avoid duplicates
         node_name = os.path.splitext(name)[0]
 
         address = None
+        status = None
+        process = None
         for submodel in data.get("submodels", []):
             elems = submodel.get("submodelElements", [])
-            address = _find_address(elems)
-            if address:
+            if address is None:
+                address = _find_address(elems)
+            if status is None:
+                status = _find_status(elems)
+            sem_id = (
+                submodel.get("semanticId", {})
+                .get("keys", [{}])[0]
+                .get("value")
+            )
+            if sem_id in IRDI_PROCESS_MAP and process is None:
+                process = IRDI_PROCESS_MAP[sem_id]
+            if address and status and process:
                 break
         if not address:
             continue
@@ -101,9 +143,24 @@ def load_aas_files(directory: str) -> Dict[str, Tuple[float, float]]:
         if latlon is None:
             continue
 
-        coords[node_name] = latlon
+        if status is None:
+            status = "Unknown"
 
-    return coords
+        if process is None:
+            # fall back to shell idShort heuristics
+            sid = shell.get("idShort", "").lower()
+            if "forging" in sid:
+                process = "Forging"
+            elif "assembly" in sid:
+                process = "Assembly"
+            else:
+                continue
+
+        machine = Machine(node_name, latlon, process, status)
+        if machine.status.lower() == "running":
+            machines[node_name] = machine
+
+    return machines
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -150,29 +207,58 @@ def main():
     )
     args = parser.parse_args()
 
-    coords = load_aas_files(args.aas_dir)
-    if len(coords) < 2:
-        print("Not enough AAS locations found.")
+    machines = load_machines(args.aas_dir)
+    if not machines:
+        print("No running machines with valid locations found.")
         return
 
-    graph = build_graph_from_aas(coords)
+    # Organise machines by process step
+    by_process: Dict[str, List[Machine]] = {}
+    for m in machines.values():
+        by_process.setdefault(m.process, []).append(m)
 
-    start = args.start
-    target = args.target
+    flow = ["Forging", "Turning", "Milling", "Grinding", "Assembly"]
+    selected: List[Machine] = []
 
-    if not graph.find_node(start) or not graph.find_node(target):
-        print("Start or target node not found in loaded AAS files.")
+    for step in flow:
+        candidates = by_process.get(step, [])
+        if not candidates:
+            continue
+        if not selected:
+            chosen = candidates[0]
+        else:
+            prev = selected[-1]
+            chosen = min(
+                candidates,
+                key=lambda m: haversine(
+                    prev.coords[0], prev.coords[1], m.coords[0], m.coords[1]
+                ),
+            )
+        selected.append(chosen)
+        by_process[step] = [c for c in candidates if c != chosen]
+
+    if not selected:
+        print("No machines selected for the flow.")
         return
 
-    astar = AStar(graph, start, target)
-    result = astar.search()
-    if not result:
-        print("No path found.")
-        return
+    print(" → ".join(m.name for m in selected))
+    try:
+        import folium
 
-    path, total = result
-    print("최단 경로: " + " → ".join(path))
-    print(f"총 거리: {total:.1f} km")
+        m = folium.Map(location=selected[0].coords, zoom_start=5)
+        prev = None
+        for mach in selected:
+            folium.Marker(
+                location=mach.coords,
+                popup=f"{mach.name} ({mach.process}) - {mach.status}",
+            ).add_to(m)
+            if prev:
+                folium.PolyLine([prev, mach.coords], color="blue").add_to(m)
+            prev = mach.coords
+        m.save("process_flow.html")
+        print("Saved flow visualisation to 'process_flow.html'.")
+    except Exception:
+        print("folium not available; skipping visualisation.")
 
 
 if __name__ == "__main__":
