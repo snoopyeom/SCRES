@@ -23,3 +23,9 @@ python astar_demo.py --aas-dir "path/to/aas/files"
 
 The script prints the discovered path length and visualises the route using a
 small ASCII grid.
+
+``aas_pathfinder.py`` can load the same directory of AAS JSON files to select
+machines for each manufacturing step.  It determines the machine's process by
+reading the ``Type`` property inside the ``Category`` submodel, mapping values
+such as ``"Hot Former"`` or ``"CNC LATHE"`` to steps like Forging or Turning.
+This approach is more reliable than depending on IRDI codes.

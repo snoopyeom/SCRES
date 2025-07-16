@@ -53,6 +53,17 @@ IRDI_PROCESS_MAP = {
     "0173-1#01-AKJ867#017": "Grinding",
 }
 
+# Mapping of Category/Type values to process steps
+TYPE_PROCESS_MAP = {
+    "Hot Former": "Forging",
+    "CNC LATHE": "Turning",
+    "Vertical Machining Center": "Milling",
+    "Horizontal Machining Center": "Milling",
+    "Flat surface grinder": "Grinding",
+    "Cylindrical grinder": "Grinding",
+    "Assembly System": "Assembly",
+}
+
 
 @dataclass
 class Machine:
@@ -91,6 +102,22 @@ def _find_status(elements):
     return None
 
 
+def _find_type_process(elements):
+    """Recursively search for a 'Type' property and map it to a process."""
+    for elem in elements:
+        if elem.get("idShort") == "Type":
+            val = elem.get("value")
+            if isinstance(val, str):
+                proc = TYPE_PROCESS_MAP.get(val)
+                if proc:
+                    return proc
+        if isinstance(elem.get("submodelElements"), list):
+            proc = _find_type_process(elem["submodelElements"])
+            if proc:
+                return proc
+    return None
+
+
 def load_machines(directory: str) -> Dict[str, Machine]:
     """Load AAS JSON files and return running machines with coordinates."""
     machines: Dict[str, Machine] = {}
@@ -125,6 +152,8 @@ def load_machines(directory: str) -> Dict[str, Machine]:
                 address = _find_address(elems)
             if status is None:
                 status = _find_status(elems)
+            if submodel.get("idShort") == "Category" and process is None:
+                process = _find_type_process(elems)
             sem_id = (
                 submodel.get("semanticId", {})
                 .get("keys", [{}])[0]
