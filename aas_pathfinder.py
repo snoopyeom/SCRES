@@ -227,6 +227,8 @@ def main():
     )
     args = parser.parse_args()
 
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format="%(message)s")
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
