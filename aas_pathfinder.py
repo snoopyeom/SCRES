@@ -1,12 +1,15 @@
 import argparse
 import json
 import os
+import logging
 from math import radians, sin, cos, sqrt, atan2
 from typing import Dict, Tuple, List
 
 from dataclasses import dataclass
 from graph import Graph, Node
 from a_star import AStar
+
+logger = logging.getLogger(__name__)
 
 # geopy is optional in this environment
 try:
@@ -94,17 +97,21 @@ def load_machines(directory: str) -> Dict[str, Machine]:
     geolocator = Nominatim(user_agent="aas_pathfinder") if Nominatim else None
 
     for name in os.listdir(directory):
+        logger.debug("Processing file: %s", name)
         if not name.lower().endswith(".json"):
+            logger.debug("  Skipped (not JSON)")
             continue
         path = os.path.join(directory, name)
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug("  Failed to load JSON: %s", e)
             continue
 
         shells = data.get("assetAdministrationShells", [])
         if not shells:
+            logger.debug("  No shells found")
             continue
         shell = shells[0]
         node_name = os.path.splitext(name)[0]
@@ -128,8 +135,10 @@ def load_machines(directory: str) -> Dict[str, Machine]:
             if address and status and process:
                 break
         if not address:
+            logger.debug("  No address found")
             continue
         address = address.strip()
+        logger.debug("  Address: %s", address)
 
         latlon = ADDRESS_COORDS.get(address)
         if latlon is None and geolocator:
@@ -139,8 +148,13 @@ def load_machines(directory: str) -> Dict[str, Machine]:
                 location = None
             if location:
                 latlon = (location.latitude, location.longitude)
+        if status is not None:
+            logger.debug("  Status: %s", status)
+        if process is not None:
+            logger.debug("  Process: %s", process)
 
         if latlon is None:
+            logger.debug("  Unable to determine coordinates for %s", address)
             continue
 
         if status is None:
@@ -158,6 +172,7 @@ def load_machines(directory: str) -> Dict[str, Machine]:
 
         machine = Machine(node_name, latlon, process, status)
         if machine.status.lower() == "running":
+            logger.debug("  Added running machine: %s", machine)
             machines[node_name] = machine
 
     return machines
@@ -205,24 +220,39 @@ def main():
         default="AAS_20AD-36",
         help="Target node name (base file name)",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose debug output",
+    )
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
 
     machines = load_machines(args.aas_dir)
     if not machines:
-        print("No running machines with valid locations found.")
+        logger.info("No running machines with valid locations found.")
         return
 
     # Organise machines by process step
     by_process: Dict[str, List[Machine]] = {}
     for m in machines.values():
         by_process.setdefault(m.process, []).append(m)
+    logger.debug(
+        "Loaded machines: %s",
+        {k: [m.name for m in v] for k, v in by_process.items()},
+    )
 
     flow = ["Forging", "Turning", "Milling", "Grinding", "Assembly"]
     selected: List[Machine] = []
 
     for step in flow:
         candidates = by_process.get(step, [])
+        logger.debug("Step '%s' candidates: %s", step, [c.name for c in candidates])
         if not candidates:
+            logger.debug("No candidates for %s", step)
             continue
         if not selected:
             chosen = candidates[0]
@@ -234,14 +264,15 @@ def main():
                     prev.coords[0], prev.coords[1], m.coords[0], m.coords[1]
                 ),
             )
+        logger.debug("Chosen for %s: %s", step, chosen.name)
         selected.append(chosen)
         by_process[step] = [c for c in candidates if c != chosen]
 
     if not selected:
-        print("No machines selected for the flow.")
+        logger.info("No machines selected for the flow.")
         return
 
-    print(" → ".join(m.name for m in selected))
+    logger.info(" → ".join(m.name for m in selected))
     try:
         import folium
 
@@ -256,9 +287,9 @@ def main():
                 folium.PolyLine([prev, mach.coords], color="blue").add_to(m)
             prev = mach.coords
         m.save("process_flow.html")
-        print("Saved flow visualisation to 'process_flow.html'.")
+        logger.info("Saved flow visualisation to 'process_flow.html'.")
     except Exception:
-        print("folium not available; skipping visualisation.")
+        logger.info("folium not available; skipping visualisation.")
 
 
 if __name__ == "__main__":
