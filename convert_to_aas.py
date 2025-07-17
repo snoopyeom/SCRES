@@ -227,7 +227,8 @@ def _convert_category(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     ]
     ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/Category")
     submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="Category", identification=ident)
-    submodel.submodel_element.extend(elements)
+    for elem in elements:
+        submodel.submodel_element.add(elem)
     return submodel
 
 
@@ -247,7 +248,8 @@ def _convert_operation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     ]
     ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/Operation")
     submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="Operation", identification=ident)
-    submodel.submodel_element.extend(elements)
+    for elem in elements:
+        submodel.submodel_element.add(elem)
     return submodel
 
 
@@ -287,7 +289,8 @@ def _convert_nameplate(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     ]
     ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/Nameplate")
     submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="Nameplate", identification=ident)
-    submodel.submodel_element.extend(elements)
+    for elem in elements:
+        submodel.submodel_element.add(elem)
     return submodel
 
 
@@ -309,7 +312,7 @@ def _convert_technical_data(sm: Dict[str, Any], process: str, *, fallback_prefix
     process_smc = _collection(process or "Process", [general_info, technical_area])
     ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/TechnicalData")
     submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="TechnicalData", identification=ident)
-    submodel.submodel_element.append(process_smc)
+    submodel.submodel_element.add(process_smc)
     return submodel
 
 
@@ -353,7 +356,7 @@ def _convert_documentation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     docs_list = _list("Documents", documents)
     ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/HandoverDocumentation")
     submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="HandoverDocumentation", identification=ident)
-    submodel.submodel_element.append(docs_list)
+    submodel.submodel_element.add(docs_list)
     return submodel
 
 
