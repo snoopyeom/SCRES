@@ -11,35 +11,26 @@ from typing import Any, Dict
 logger = logging.getLogger("AAS_Converter")
 logging.basicConfig(level=logging.INFO)
 
-# Ensure the bundled SDK is importable if available
+# Ensure the bundled SDK is importable
 SDK_DIR = os.path.join(os.path.dirname(__file__), "sdk")
-if os.path.isdir(SDK_DIR) and SDK_DIR not in sys.path:
+if SDK_DIR not in sys.path:
     sys.path.insert(0, SDK_DIR)
 
-# Attempt to import basyx-python-sdk.  The SDK is bundled in this repository
-# under the ``sdk/`` directory, so adding that path above allows importing it
-# without installing the package system-wide.  The Environment class changed
-# location across versions, therefore we try both namespaces.  Older snapshots of
-# the SDK shipped without an ``environment`` module.  In that case we fall back
-# to a minimal implementation based on :class:`DictObjectStore`.
+# Import the BaSyx SDK exclusively from the bundled ``sdk`` directory.  The
+# Environment class changed location across versions, therefore we try both
+# namespaces.  If neither exists we fall back to a very small implementation
+# based on :class:`DictObjectStore`.
+from basyx.aas import model as aas
 try:
-    from basyx.aas import model as aas
+    from basyx.aas.environment import AssetAdministrationShellEnvironment  # type: ignore
+except ImportError:
     try:
-        from basyx.aas.environment import AssetAdministrationShellEnvironment  # type: ignore
-    except ImportError:
-        try:
-            from basyx.aas.model.environment import AssetAdministrationShellEnvironment  # type: ignore
-        except ImportError:  # pragma: no cover - fallback path
-            AssetAdministrationShellEnvironment = None  # type: ignore
-    from basyx.aas.adapter.json import write_aas_json_file
-    from basyx.aas.model import provider as aas_provider
-    logger.info("✅ basyx SDK import 성공")
-except Exception as exc:  # pragma: no cover - import failure path
-    logger.error("❌ basyx SDK import 실패: %r", exc)
-    aas = None
-    AssetAdministrationShellEnvironment = None
-    write_aas_json_file = None
-    aas_provider = None
+        from basyx.aas.model.environment import AssetAdministrationShellEnvironment  # type: ignore
+    except ImportError:  # pragma: no cover - fallback path
+        AssetAdministrationShellEnvironment = None  # type: ignore
+from basyx.aas.adapter.json import write_aas_json_file
+from basyx.aas.model import provider as aas_provider
+logger.info("✅ basyx SDK import 성공 (local)")
 
 # Provide a very small fallback environment implementation if the SDK does not
 # ship one.  This fallback only implements the parts used by this script and the
@@ -60,7 +51,7 @@ if aas is not None and AssetAdministrationShellEnvironment is None and aas_provi
 def _require_sdk() -> None:
     """Ensure the basyx SDK (or the bundled fallback) is available."""
     if aas is None or write_aas_json_file is None:
-        raise RuntimeError("basyx-python-sdk is required to run this script")
+        raise RuntimeError("BaSyx SDK is required to run this script")
 
 
 # Mapping for category/type to process names
@@ -423,13 +414,13 @@ def convert_file(path: str) -> Any:
         else:
             new_sm = conv(sm, fallback_prefix=prefix)
         submodels_list.append(new_sm)
-        # Reference placeholder
         # ``submodel`` is a mutable collection which is implemented as a
         # ``set`` in older versions of the BaSyx SDK.  Using ``append`` here
         # raises ``AttributeError`` when ``submodel`` is a set, therefore we
         # use ``add`` which works for both ``set`` and ``list`` like
-        # implementations.
-        shell.submodel.add(aas.ModelReference([]))
+        # implementations.  Add a proper ``ModelReference`` so the SDK does not
+        # fail with ``TypeError``.
+        shell.submodel.add(aas.ModelReference.from_referable(new_sm))
 
     # ConceptDescriptions would be converted here if needed
     for _cd in data.get("conceptDescriptions", []):
@@ -444,7 +435,7 @@ def convert_file(path: str) -> Any:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert legacy AAS JSON files using basyx-python-sdk")
+    parser = argparse.ArgumentParser(description="Convert legacy AAS JSON files using the bundled BaSyx SDK")
     parser.add_argument("input_dir", help="Directory with legacy JSON files")
     parser.add_argument("output_dir", help="Directory to write converted files")
     args = parser.parse_args()
