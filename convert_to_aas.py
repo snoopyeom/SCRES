@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 from typing import Any, Dict
-
 # ``basyx-python-sdk`` is required for this script.  All imports are optional so
 # that the file can be parsed even when the library is missing.
 try:  # pragma: no cover - basyx might not be installed
@@ -48,23 +47,26 @@ def _require_sdk() -> None:
         raise RuntimeError("basyx-python-sdk is required to run this script")
 
 
-def _ident(data: Dict[str, Any]) -> Any:
-    """Return an Identification object from ``data``."""
-
-    if aas is None:  # pragma: no cover - handled in _require_sdk
+def _ident(data: Dict[str, Any], fallback_id: str = "http://example.com/dummy-id") -> Any:
+    """Return an Identification object from ``data`` with fallback for empty IDs."""
+    if aas is None:
         return None
-    ident = data.get("id", "")
+
+    ident = data.get("id", "").strip()
+    if not ident:
+        ident = fallback_id  # 빈 값일 경우 더미 ID 삽입
+
     id_type = data.get("idType", "Custom")
     try:
-        # Older versions of the SDK accept keyword arguments
         return aas.Identifier(id=ident, id_type=id_type)
     except TypeError:
         try:
-            # Newer releases might require positional arguments
             return aas.Identifier(ident, id_type)
         except TypeError:
-            # Fallback for versions where ``Identifier`` is an alias of ``str``
             return aas.Identifier(ident)
+
+
+
 
 
 def _create(cls: Any, /, *args: Any, **kwargs: Any) -> Any:
@@ -314,23 +316,30 @@ def convert_file(path: str) -> Any:
         data, _ = decoder.raw_decode(text)
 
     shell_data = data.get("assetAdministrationShells", [{}])[0]
-    shell = _create(
-        aas.AssetAdministrationShell,
-        id_short=shell_data.get("idShort", "Shell"),
-        identification=_ident(shell_data.get("identification", {})),
+
+    # fallback ID 생성 (파일 이름 기반으로)
+    fallback_id = f"http://example.com/{os.path.splitext(os.path.basename(path))[0]}"
+    
+    # identification 객체 생성
+    ident = _ident(shell_data.get("identification", {}), fallback_id=fallback_id)
+    id_ = getattr(ident, "id", "") if ident else ""
+
+    # 안전한 assetInformation 생성 (Constraint AASd-131 대응)
+    asset_info = aas.AssetInformation(
+        asset_kind=aas.AssetKind.INSTANCE,
+        global_asset_id="http://example.com/dummy-asset"
     )
 
-    asset_data = shell_data.get("asset") or shell_data.get("assetInformation")
-    if asset_data is not None:
-        for attr in ("asset_information", "assetInformation", "asset"):
-            if hasattr(shell, attr):
-                try:
-                    setattr(shell, attr, asset_data)
-                except Exception:  # pragma: no cover - best effort for SDK variations
-                    pass
-                else:
-                    break
+    # AAS 객체 생성
+    shell = _create(
+        aas.AssetAdministrationShell,
+        id_=id_,
+        id_short=shell_data.get("idShort", "Shell"),
+        identification=ident,
+        asset_information=asset_info
+    )
 
+    # AAS 환경 생성
     env = aas.AssetAdministrationShellEnvironment(
         assetAdministrationShells=[shell],
         submodels=[],
@@ -338,6 +347,7 @@ def convert_file(path: str) -> Any:
         conceptDescriptions=[],
     )
 
+    # 기계 타입 → 공정명 추출
     machine_type = None
     for sm in data.get("submodels", []):
         if sm.get("idShort") == "Category":
@@ -348,6 +358,7 @@ def convert_file(path: str) -> Any:
             break
     process = TYPE_PROCESS_MAP.get(machine_type, machine_type or "Process")
 
+    # Submodel 변환 처리
     for sm in data.get("submodels", []):
         cname = sm.get("idShort")
         conv = _CONVERTERS.get(cname)
@@ -371,7 +382,10 @@ def convert_file(path: str) -> Any:
                 ]
             )
         )
+
     return env
+
+
 
 
 def main() -> None:
