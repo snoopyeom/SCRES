@@ -4,6 +4,17 @@ import json
 import os
 from typing import Dict, Any
 
+# Mapping of Category/Type values to process names
+TYPE_PROCESS_MAP = {
+    "Hot Former": "Forging",
+    "CNC LATHE": "Turning",
+    "Vertical Machining Center": "Milling",
+    "Horizontal Machining Center": "Milling",
+    "Flat surface grinder": "Grinding",
+    "Cylindrical grinder": "Grinding",
+    "Assembly System": "Assembly",
+}
+
 
 def _copy_identification(src: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -84,10 +95,99 @@ def _convert_nameplate(sm: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _convert_technical_data(sm: Dict[str, Any], process: str) -> Dict[str, Any]:
+    tech_props = []
+    for elem in sm.get("submodelElements", []):
+        tech_props.append({
+            "idShort": elem.get("idShort"),
+            "modelType": "Property",
+            "value": elem.get("value"),
+            "valueType": "string",
+        })
+
+    technical_area = {
+        "idShort": "TechnicalPropertyAreas",
+        "modelType": "SubmodelElementCollection",
+        "value": tech_props,
+    }
+    process_smc = {
+        "idShort": process or "Process",
+        "modelType": "SubmodelElementCollection",
+        "value": [
+            {"idShort": "GeneralInformation", "modelType": "SubmodelElementCollection", "value": []},
+            technical_area,
+        ],
+    }
+    return {
+        "idShort": "TechnicalData",
+        "modelType": "Submodel",
+        "identification": _copy_identification(sm.get("identification", {})),
+        "submodelElements": [process_smc],
+    }
+
+
+def _convert_documentation(sm: Dict[str, Any]) -> Dict[str, Any]:
+    documents = []
+    for elem in sm.get("submodelElements", []):
+        doc = {
+            "idShort": "Document",
+            "modelType": "SubmodelElementCollection",
+            "value": [
+                {
+                    "idShort": "DocumentId",
+                    "modelType": "SubmodelElementCollection",
+                    "value": [
+                        {"idShort": "DocumentIdentifier", "modelType": "Property", "value": elem.get("idShort"), "valueType": "string"},
+                        {"idShort": "DocumentDomainId", "modelType": "Property", "value": "", "valueType": "string"},
+                    ],
+                },
+                {
+                    "idShort": "DocumentVersions",
+                    "modelType": "SubmodelElementList",
+                    "value": [
+                        {
+                            "idShort": "DocumentVersion",
+                            "modelType": "SubmodelElementCollection",
+                            "value": [
+                                {"idShort": "Language", "modelType": "Property", "value": "en", "valueType": "string"},
+                                {"idShort": "Title", "modelType": "MultiLanguageProperty", "value": {"en": elem.get("idShort")}},
+                                {
+                                    "idShort": "DigitalFiles",
+                                    "modelType": "SubmodelElementList",
+                                    "value": [
+                                        {
+                                            "idShort": "DigitalFile",
+                                            "modelType": "SubmodelElementCollection",
+                                            "value": [
+                                                {"idShort": "FileFormat", "modelType": "Property", "value": "", "valueType": "string"},
+                                                {"idShort": "FileName", "modelType": "Property", "value": elem.get("value"), "valueType": "string"},
+                                            ],
+                                        }
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        documents.append(doc)
+
+    return {
+        "idShort": "HandoverDocumentation",
+        "modelType": "Submodel",
+        "identification": _copy_identification(sm.get("identification", {})),
+        "submodelElements": [
+            {"idShort": "Documents", "modelType": "SubmodelElementList", "value": documents}
+        ],
+    }
+
+
 _CONVERTERS = {
     "Category": _convert_category,
     "Operational_Data": _convert_operation,
     "Nameplate": _convert_nameplate,
+    "Documentation": _convert_documentation,
 }
 
 
@@ -123,22 +223,37 @@ def convert_file(path: str) -> Dict[str, Any]:
         "assets": data.get("assets", []),
         "conceptDescriptions": [],
     }
+
+    machine_type = None
+    for sm in data.get("submodels", []):
+        if sm.get("idShort") == "Category":
+            for elem in sm.get("submodelElements", []):
+                if elem.get("idShort") == "Type":
+                    machine_type = elem.get("value")
+                    break
+            break
+    process = TYPE_PROCESS_MAP.get(machine_type, machine_type or "Process")
     for sm in data.get("submodels", []):
         cname = sm.get("idShort")
         conv = _CONVERTERS.get(cname)
         if conv:
             new_sm = conv(sm)
-            new_env["submodels"].append(new_sm)
-            new_env["assetAdministrationShells"][0]["submodels"].append({
-                "keys": [
-                    {
-                        "type": "Submodel",
-                        "idType": new_sm["identification"]["idType"],
-                        "value": new_sm["identification"]["id"],
-                        "local": True,
-                    }
-                ]
-            })
+        elif cname == "Technical_Data":
+            new_sm = _convert_technical_data(sm, process)
+        else:
+            continue
+
+        new_env["submodels"].append(new_sm)
+        new_env["assetAdministrationShells"][0]["submodels"].append({
+            "keys": [
+                {
+                    "type": "Submodel",
+                    "idType": new_sm["identification"]["idType"],
+                    "value": new_sm["identification"]["id"],
+                    "local": True,
+                }
+            ]
+        })
     _normalize_modeltypes(new_env)
     return new_env
 
