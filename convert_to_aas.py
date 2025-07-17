@@ -156,9 +156,28 @@ def _create(cls, *args, id_: Any = None, id_short: str | None = None, identifica
         return obj
 
 
-def _prop(id_short: str, value: Any, value_type: str = "string") -> Any:
+def _prop(id_short: str, value: Any, value_type: Any = "string") -> Any:
+    """Create a Property with the correct BaSyx datatype.
+
+    ``convert_to_aas`` previously forwarded ``value_type`` strings directly to
+    :class:`basyx.aas.model.submodel.Property`.  Newer versions of the BaSyx
+    SDK expect the actual datatype classes instead of plain strings which lead
+    to ``TypeError: isinstance() arg 2 must be a type`` during conversion.  This
+    helper accepts either a string such as ``"string"`` or a datatype class and
+    resolves it accordingly so it works with all SDK versions.
+    """
+
     if aas is None:
         return None
+
+    if isinstance(value_type, str):
+        # Map common string names (e.g. "string", "integer") to the BaSyx
+        # datatype classes expected by Property
+        lookup_key = f"xs:{value_type}"
+        value_type = aas.datatypes.XSD_TYPE_CLASSES.get(
+            lookup_key, aas.datatypes.String
+        )
+
     return aas.Property(id_short=id_short, value=value, value_type=value_type)
 
 
