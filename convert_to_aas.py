@@ -52,9 +52,12 @@ def _ident(data: Dict[str, Any], fallback_id: str = "http://example.com/dummy-id
     if aas is None:
         return None
 
-    ident = data.get("id", "").strip()
+    ident = str(data.get("id", "")).strip()
     if not ident:
-        ident = fallback_id  # 빈 값일 경우 더미 ID 삽입
+        ident = fallback_id
+
+    # spaces in identifiers often trigger validation errors in ``basyx``
+    ident = ident.replace(" ", "_")
 
     id_type = data.get("idType", "Custom")
     try:
@@ -318,7 +321,8 @@ def convert_file(path: str) -> Any:
     shell_data = data.get("assetAdministrationShells", [{}])[0]
 
     # fallback ID 생성 (파일 이름 기반으로)
-    fallback_id = f"http://example.com/{os.path.splitext(os.path.basename(path))[0]}"
+    base_name = os.path.splitext(os.path.basename(path))[0].replace(" ", "_")
+    fallback_id = f"http://example.com/{base_name}"
     
     # identification 객체 생성
     ident = _ident(shell_data.get("identification", {}), fallback_id=fallback_id)
