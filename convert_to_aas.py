@@ -1,22 +1,19 @@
-"""Convert legacy AAS JSON files using the BaSyx object model."""
-
 from __future__ import annotations
 
 import argparse
 import json
 import os
 from typing import Any, Dict
-# ``basyx-python-sdk`` is required for this script.  All imports are optional so
-# that the file can be parsed even when the library is missing.
-try:  # pragma: no cover - basyx might not be installed
+
+# Optional import for basyx SDK
+try:
     from basyx.aas import model as aas
     from basyx.aas.adapter.json import write_aas_json_file
-except Exception:  # pragma: no cover - basyx might not be installed
+except Exception:
     aas = None  # type: ignore
     write_aas_json_file = None  # type: ignore
 
-
-# Mapping of Category/Type values to process names
+# Mapping for category/type to process names
 TYPE_PROCESS_MAP = {
     "Hot Former": "Forging",
     "CNC LATHE": "Turning",
@@ -27,7 +24,7 @@ TYPE_PROCESS_MAP = {
     "Assembly System": "Assembly",
 }
 
-# Common mapping of irregular property names to standard idShorts
+# Property name normalization map
 PROPERTY_NAME_MAP = {
     "Spindle_motor": "SpindlePower",
     "SpindleMotor": "SpindlePower",
@@ -41,75 +38,103 @@ PROPERTY_NAME_MAP = {
 
 
 def _require_sdk() -> None:
-    """Raise ``RuntimeError`` if ``basyx-python-sdk`` is missing."""
-
+    """Raise error if basyx SDK is missing."""
     if aas is None or write_aas_json_file is None:
         raise RuntimeError("basyx-python-sdk is required to run this script")
 
 
-def _ident(data: Dict[str, Any], fallback_id: str = "http://example.com/dummy-id") -> Any:
-    """Return an Identification object from ``data`` with fallback for empty IDs."""
+def _ident(data: Any, fallback_id: str = "http://example.com/dummy-id") -> Any:
     if aas is None:
         return None
-
-    ident = str(data.get("id", "")).strip()
+    # 디버깅: 타입 체크
+    if isinstance(data, dict):
+        ident = str(data.get("id", "")).strip()
+        id_type = data.get("idType", "Custom")
+    else:
+        if isinstance(data, str):
+            print(f"WARNING: _ident called with string: {data!r}")
+            ident = data.strip()
+            id_type = "Custom"
+        else:
+            print(f"WARNING: _ident called with non-dict/non-str: {type(data)} {data!r}")
+            ident = str(data)
+            id_type = "Custom"
     if not ident:
         ident = fallback_id
-
-    # spaces in identifiers often trigger validation errors in ``basyx``
     ident = ident.replace(" ", "_")
-
-    id_type = data.get("idType", "Custom")
-    try:
-        return aas.Identifier(id=ident, id_type=id_type)
-    except TypeError:
-        try:
-            return aas.Identifier(ident, id_type)
-        except TypeError:
-            return aas.Identifier(ident)
-
-
-
+    if not ident:
+        ident = fallback_id
+    return aas.Identifier(id=ident, id_type=id_type)
 
 
 def _create(cls: Any, /, *args: Any, **kwargs: Any) -> Any:
-    """Instantiate ``cls`` with fallbacks for SDK API variations."""
-    if aas is None:  # pragma: no cover - handled in _require_sdk
+    print(f"[DEBUG] _create called: cls={cls!r}, args={args!r}, kwargs={kwargs!r}")
+    if aas is None:
         return None
+
+    if isinstance(cls, str):
+        print(f"ERROR: _create called with str as cls: {cls!r}")
+        raise TypeError(f"Invalid class passed to _create(): {cls!r}")
+    if not hasattr(cls, "__call__"):
+        print(f"ERROR: _create called with non-callable cls: {cls!r}")
+        raise TypeError(f"Invalid class passed to _create(): {cls!r}")
+
     ident = kwargs.pop("identification", None)
+    fallback_id = "http://example.com/fallback-id"
+
+    # ident 보정
+    if ident is not None and not hasattr(ident, "id"):
+        print(f"WARNING: ident is not Identifier, got {type(ident)}: {ident!r}. Wrapping as Identifier.")
+        ident = aas.Identifier(id=str(ident), id_type="Custom")
+
+    id_value = kwargs.pop("id_", None)
+    if hasattr(ident, "id"):
+        id_value = ident.id
+    print(f"[DEBUG] ident type: {type(ident)}, ident: {ident!r}")
+    print(f"[DEBUG] id_value: {id_value!r}")
+
+    if not id_value:
+        id_value = fallback_id
+
+    # cls가 id 인자를 받는지 체크
+    accepts_id_kwarg = hasattr(cls, "__init__") and "id" in cls.__init__.__code__.co_varnames
+    if accepts_id_kwarg:
+        kwargs["id"] = id_value
+
     try:
         if ident is not None:
             return cls(*args, identification=ident, **kwargs)
         return cls(*args, **kwargs)
-    except TypeError:
-        # remove identification and try again
+    except TypeError as e:
+        print(f"TypeError on _create({cls}, args={args}, kwargs={kwargs}): {e}")
+        import traceback
+        traceback.print_exc()
         obj = cls(*args, **kwargs)
         if ident is not None:
-            # try to set attribute name variants
             if hasattr(obj, "identification"):
                 setattr(obj, "identification", ident)
             elif hasattr(obj, "id"):
                 try:
-                    setattr(obj, "id", ident.id)  # type: ignore[attr-defined]
-                except Exception:  # pragma: no cover - best effort
+                    setattr(obj, "id", ident.id)
+                except Exception:
                     setattr(obj, "id", ident)
         return obj
 
 
 def _prop(id_short: str, value: Any, value_type: str = "string") -> Any:
-    if aas is None:  # pragma: no cover - handled in _require_sdk
+    if aas is None:
         return None
     return aas.Property(id_short=id_short, value=value, value_type=value_type)
 
 
 def _mlp(id_short: str, value: str) -> Any:
-    if aas is None:  # pragma: no cover - handled in _require_sdk
+    if aas is None:
         return None
     return aas.MultiLanguageProperty(id_short=id_short, value={"en": value})
 
 
 def _collection(id_short: str, elements: list[Any]) -> Any:
-    if aas is None:  # pragma: no cover - handled in _require_sdk
+    if aas is None:
         return None
     col = aas.SubmodelElementCollection(id_short=id_short)
     col.value.extend(elements)
@@ -117,7 +142,7 @@ def _collection(id_short: str, elements: list[Any]) -> Any:
 
 
 def _list(id_short: str, elements: list[Any]) -> Any:
-    if aas is None:  # pragma: no cover - handled in _require_sdk
+    if aas is None:
         return None
     sel = aas.SubmodelElementList(id_short=id_short)
     sel.value.extend(elements)
@@ -125,8 +150,6 @@ def _list(id_short: str, elements: list[Any]) -> Any:
 
 
 def _normalize_id_short(name: str) -> str:
-    """Convert legacy idShort names to a standardised form."""
-
     if name in PROPERTY_NAME_MAP:
         return PROPERTY_NAME_MAP[name]
     parts = name.replace("_", " ").split()
@@ -142,7 +165,6 @@ def _convert_category(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
             machine_type = elem.get("value", "")
         elif sid == "Role":
             machine_role = elem.get("value", "")
-
     elements = [
         _prop("MachineType", machine_type),
         _prop("MachineRole", machine_role),
@@ -156,10 +178,6 @@ def _convert_category(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="Category",
         identification=ident,
-        identification=_ident(
-            sm.get("identification", {}),
-            fallback_id=f"{fallback_prefix}/Category",
-        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
@@ -171,7 +189,6 @@ def _convert_operation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         if elem.get("idShort") == "Machine_Status":
             status = elem.get("value", "")
             break
-
     elements = [
         _prop("MachineStatus", status),
         _prop("ProcessOrder", 0, "integer"),
@@ -189,10 +206,6 @@ def _convert_operation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="Operation",
         identification=ident,
-        identification=_ident(
-            sm.get("identification", {}),
-            fallback_id=f"{fallback_prefix}/Operation",
-        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
@@ -241,10 +254,6 @@ def _convert_nameplate(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="Nameplate",
         identification=ident,
-        identification=_ident(
-            sm.get("identification", {}),
-            fallback_id=f"{fallback_prefix}/Nameplate",
-        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
@@ -277,10 +286,6 @@ def _convert_technical_data(sm: Dict[str, Any], process: str, *, fallback_prefix
         id_=getattr(ident, "id", None),
         id_short="TechnicalData",
         identification=ident,
-        identification=_ident(
-            sm.get("identification", {}),
-            fallback_id=f"{fallback_prefix}/TechnicalData",
-        ),
     )
     submodel.submodel_element.append(process_smc)
     return submodel
@@ -323,7 +328,6 @@ def _convert_documentation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
             ],
         )
         documents.append(doc)
-
     docs_list = _list("Documents", documents)
     ident = _ident(
         sm.get("identification", {}),
@@ -334,10 +338,6 @@ def _convert_documentation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="HandoverDocumentation",
         identification=ident,
-        identification=_ident(
-            sm.get("identification", {}),
-            fallback_id=f"{fallback_prefix}/HandoverDocumentation",
-        ),
     )
     submodel.submodel_element.append(docs_list)
     return submodel
@@ -352,8 +352,6 @@ _CONVERTERS = {
 
 
 def convert_file(path: str) -> Any:
-    """Convert a legacy AAS JSON file and return the new environment."""
-
     _require_sdk()
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
@@ -369,12 +367,12 @@ def convert_file(path: str) -> Any:
     base_name = os.path.splitext(os.path.basename(path))[0].replace(" ", "_")
     fallback_id = f"http://example.com/{base_name}"
     prefix = fallback_id
-    
+
     # identification 객체 생성
     ident = _ident(shell_data.get("identification", {}), fallback_id=fallback_id)
     id_ = getattr(ident, "id", "") if ident else ""
 
-    # 안전한 assetInformation 생성 (Constraint AASd-131 대응)
+    # 안전한 assetInformation 생성
     asset_info = aas.AssetInformation(
         asset_kind=aas.AssetKind.INSTANCE,
         global_asset_id="http://example.com/dummy-asset"
@@ -436,8 +434,6 @@ def convert_file(path: str) -> Any:
     return env
 
 
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert legacy AAS JSON files using basyx-python-sdk"
@@ -455,8 +451,10 @@ def main() -> None:
         outp = os.path.join(args.output_dir, name)
         try:
             env = convert_file(inp)
-        except Exception as e:  # pragma: no cover - convenience script
+        except Exception as e:
             print(f"Failed to convert {name}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
         with open(outp, "w", encoding="utf-8") as f:
             write_aas_json_file(f, env)
