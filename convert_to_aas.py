@@ -64,7 +64,15 @@ def _ident(data: Any, fallback_id: str = "http://example.com/dummy-id") -> Any:
     ident = ident.replace(" ", "_")
     if not ident:
         ident = fallback_id
-    return aas.Identifier(id=ident, id_type=id_type)
+    try:
+        return aas.Identifier(id=ident, id_type=id_type)
+    except TypeError:
+        # Identifier might be a simple string alias or support a
+        # different constructor.  Fallback to the most permissive option.
+        try:
+            return aas.Identifier(ident)
+        except Exception:
+            return ident
 
 
 def _create(cls: Any, /, *args: Any, **kwargs: Any) -> Any:
@@ -85,7 +93,10 @@ def _create(cls: Any, /, *args: Any, **kwargs: Any) -> Any:
     # ident 보정
     if ident is not None and not hasattr(ident, "id"):
         print(f"WARNING: ident is not Identifier, got {type(ident)}: {ident!r}. Wrapping as Identifier.")
-        ident = aas.Identifier(id=str(ident), id_type="Custom")
+        try:
+            ident = aas.Identifier(id=str(ident), id_type="Custom")
+        except TypeError:
+            ident = str(ident)
 
     id_value = kwargs.pop("id_", None)
     if hasattr(ident, "id"):
