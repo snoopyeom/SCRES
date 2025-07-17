@@ -11,47 +11,47 @@ from typing import Any, Dict
 logger = logging.getLogger("AAS_Converter")
 logging.basicConfig(level=logging.INFO)
 
-# Ensure the bundled SDK is importable
+# Ensure the bundled SDK is importable and loaded only from ``sdk``.  We defer
+# importing the BaSyx modules until runtime so this file does not depend on any
+# globally installed packages.
 SDK_DIR = os.path.join(os.path.dirname(__file__), "sdk")
 if SDK_DIR not in sys.path:
     sys.path.insert(0, SDK_DIR)
 
-# Import the BaSyx SDK exclusively from the bundled ``sdk`` directory.  The
-# Environment class changed location across versions, therefore we try both
-# namespaces.  If neither exists we fall back to a very small implementation
-# based on :class:`DictObjectStore`.
-from basyx.aas import model as aas
-try:
-    from basyx.aas.environment import AssetAdministrationShellEnvironment  # type: ignore
-except ImportError:
-    try:
-        from basyx.aas.model.environment import AssetAdministrationShellEnvironment  # type: ignore
-    except ImportError:  # pragma: no cover - fallback path
-        AssetAdministrationShellEnvironment = None  # type: ignore
-from basyx.aas.adapter.json import write_aas_json_file
-from basyx.aas.model import provider as aas_provider
-logger.info("✅ basyx SDK import 성공 (local)")
-
-# Provide a very small fallback environment implementation if the SDK does not
-# ship one.  This fallback only implements the parts used by this script and the
-# bundled JSON serializer.
-if aas is not None and AssetAdministrationShellEnvironment is None and aas_provider is not None:
-    class AssetAdministrationShellEnvironment(aas_provider.DictObjectStore):  # type: ignore
-        def __init__(self, *, asset_administration_shells=None, submodels=None, concept_descriptions=None):
-            super().__init__()
-            for obj in asset_administration_shells or []:
-                self.add(obj)
-            for obj in submodels or []:
-                self.add(obj)
-            for obj in concept_descriptions or []:
-                self.add(obj)
-    logger.info("ℹ️ using fallback AssetAdministrationShellEnvironment")
+aas = None
+AssetAdministrationShellEnvironment = None  # type: ignore
+write_aas_json_file = None
+aas_provider = None
 
 
 def _require_sdk() -> None:
-    """Ensure the basyx SDK (or the bundled fallback) is available."""
-    if aas is None or write_aas_json_file is None:
-        raise RuntimeError("BaSyx SDK is required to run this script")
+    """Import the bundled BaSyx SDK on demand."""
+    global aas, AssetAdministrationShellEnvironment, write_aas_json_file, aas_provider
+    if aas is not None:
+        return
+    try:
+        from basyx.aas import model as aas_mod
+        from basyx.aas.environment import AssetAdministrationShellEnvironment as AASEnv  # type: ignore
+        from basyx.aas.adapter.json import write_aas_json_file as write_json
+        from basyx.aas.model import provider as aas_provider_mod
+    except Exception as exc:  # pragma: no cover - import errors
+        raise RuntimeError("BaSyx SDK is required to run this script") from exc
+    aas = aas_mod
+    AssetAdministrationShellEnvironment = AASEnv  # type: ignore
+    write_aas_json_file = write_json
+    aas_provider = aas_provider_mod
+    if AssetAdministrationShellEnvironment is None and aas_provider is not None:
+        class AssetAdministrationShellEnvironment(aas_provider.DictObjectStore):  # type: ignore
+            def __init__(self, *, asset_administration_shells=None, submodels=None, concept_descriptions=None):
+                super().__init__()
+                for obj in asset_administration_shells or []:
+                    self.add(obj)
+                for obj in submodels or []:
+                    self.add(obj)
+                for obj in concept_descriptions or []:
+                    self.add(obj)
+        logger.info("ℹ️ using fallback AssetAdministrationShellEnvironment")
+    logger.info("✅ BaSyx SDK imported from local bundle")
 
 
 # Mapping for category/type to process names
