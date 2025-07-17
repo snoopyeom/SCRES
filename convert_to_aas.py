@@ -53,10 +53,18 @@ def _ident(data: Dict[str, Any]) -> Any:
 
     if aas is None:  # pragma: no cover - handled in _require_sdk
         return None
-    return aas.Identifier(
-        id=data.get("id", ""),
-        id_type=data.get("idType", "Custom"),
-    )
+    ident = data.get("id", "")
+    id_type = data.get("idType", "Custom")
+    try:
+        # Older versions of the SDK accept keyword arguments
+        return aas.Identifier(id=ident, id_type=id_type)
+    except TypeError:
+        try:
+            # Newer releases might require positional arguments
+            return aas.Identifier(ident, id_type)
+        except TypeError:
+            # Fallback for versions where ``Identifier`` is an alias of ``str``
+            return aas.Identifier(ident)
 
 
 def _prop(id_short: str, value: Any, value_type: str = "string") -> Any:
