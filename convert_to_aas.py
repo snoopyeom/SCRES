@@ -306,15 +306,30 @@ def convert_file(path: str) -> Any:
 
     _require_sdk()
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        text = f.read()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        data, _ = decoder.raw_decode(text)
 
     shell_data = data.get("assetAdministrationShells", [{}])[0]
     shell = _create(
         aas.AssetAdministrationShell,
         id_short=shell_data.get("idShort", "Shell"),
         identification=_ident(shell_data.get("identification", {})),
-        asset=shell_data.get("asset", {}),
     )
+
+    asset_data = shell_data.get("asset") or shell_data.get("assetInformation")
+    if asset_data is not None:
+        for attr in ("asset_information", "assetInformation", "asset"):
+            if hasattr(shell, attr):
+                try:
+                    setattr(shell, attr, asset_data)
+                except Exception:  # pragma: no cover - best effort for SDK variations
+                    pass
+                else:
+                    break
 
     env = aas.AssetAdministrationShellEnvironment(
         assetAdministrationShells=[shell],
