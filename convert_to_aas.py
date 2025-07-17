@@ -3,60 +3,32 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import uuid
+import logging
 from typing import Any, Dict
 
-# Optional import for basyx SDK
-try:
-    from basyx.aas import model as aas
-    from basyx.aas.environment import AssetAdministrationShellEnvironment
-    from basyx.aas.adapter.json import write_aas_json_file
-    print("[✅ SDK import 성공]")
-except Exception as e:
-    print(f"[❌ SDK import 실패] {e!r}")
-    aas = None
-    write_aas_json_file = None
-
-import importlib.util
-print(importlib.util.find_spec("basyx"))
-
-# ── convert_to_aas.py 상단 ──
-
-import logging
 logger = logging.getLogger("AAS_Converter")
+logging.basicConfig(level=logging.INFO)
 
-# Optional import for basyx SDK
+# Attempt to import basyx-python-sdk. The package structure changed
+# across versions so we try multiple locations for the Environment class.
 try:
     from basyx.aas import model as aas
-    # environment 클래스 여러 위치에서 시도 import
     try:
         from basyx.aas.environment import AssetAdministrationShellEnvironment
-        logger.info("✅ imported AssetAdministrationShellEnvironment from basyx.aas.environment")
     except ImportError:
-        try:
-            from basyx.aas.model.environment import AssetAdministrationShellEnvironment
-            logger.info("✅ imported AssetAdministrationShellEnvironment from basyx.aas.model.environment")
-        except ImportError as e:
-            logger.error(f"❌ AssetAdministrationShellEnvironment import 실패: {e!r}")
-            AssetAdministrationShellEnvironment = None  # fallback
-    # JSON 어댑터 import
-    try:
-        from basyx.aas.adapter.json import write_aas_json_file
-        logger.info("✅ imported write_aas_json_file")
-    except ImportError:
-        logger.error("❌ write_aas_json_file import 실패")
-        write_aas_json_file = None
-
+        from basyx.aas.model.environment import AssetAdministrationShellEnvironment
+    from basyx.aas.adapter.json import write_aas_json_file
     logger.info("✅ basyx SDK import 성공")
-except Exception as e:
-    logger.error(f"❌ basyx SDK 전체 import 실패: {e!r}")
+except Exception as exc:  # pragma: no cover - import failure path
+    logger.error("❌ basyx SDK import 실패: %r", exc)
     aas = None
     AssetAdministrationShellEnvironment = None
     write_aas_json_file = None
 
 def _require_sdk() -> None:
-    if aas is None or write_aas_json_file is None or AssetAdministrationShellEnvironment is None:
-        raise RuntimeError("basyx-python-sdk의 필요한 모듈을 찾을 수 없습니다.")
-
+    if aas is None or AssetAdministrationShellEnvironment is None or write_aas_json_file is None:
+        raise RuntimeError("basyx-python-sdk is required to run this script")
 
 # Mapping for category/type to process names
 TYPE_PROCESS_MAP = {
@@ -82,65 +54,35 @@ PROPERTY_NAME_MAP = {
 }
 
 
-def _require_sdk() -> None:
-    """Raise error if basyx SDK is missing."""
-    if aas is None or write_aas_json_file is None:
-        raise RuntimeError("basyx-python-sdk is required to run this script")
-
-
 def _ident(data: Any, fallback_id: str = "http://example.com/dummy-id") -> Any:
     if aas is None:
         return None
-    # 디버깅: 타입 체크
     if isinstance(data, dict):
         ident = str(data.get("id", "")).strip()
         id_type = data.get("idType", "Custom")
     else:
-        if isinstance(data, str):
-            print(f"WARNING: _ident called with string: {data!r}")
-            ident = data.strip()
-            id_type = "Custom"
-        else:
-            print(f"WARNING: _ident called with non-dict/non-str: {type(data)} {data!r}")
-            ident = str(data)
-            id_type = "Custom"
+        ident = str(data).strip()
+        id_type = "Custom"
     if not ident:
         ident = fallback_id
     ident = ident.replace(" ", "_")
-    if not ident:
-        ident = fallback_id
     try:
         return aas.Identifier(id=ident, id_type=id_type)
     except TypeError:
-        # Identifier might be a simple string alias or support a
-        # different constructor.  Fallback to the most permissive option.
         try:
             return aas.Identifier(ident)
         except Exception:
             return ident
 
 
-import uuid
-import logging
-
-# 🔧 로그 설정
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("AAS_Converter")
-
-def _create(cls, *args, id_=None, id_short=None, identification=None, **kwargs):
-    # identification을 id_로 보정
+def _create(cls, *args, id_: Any = None, id_short: str | None = None, identification: Any = None, **kwargs):
     if identification is not None and not id_:
         id_ = identification
-
-    # 🚨 문제 로그: id_가 비어있거나 None일 경우 경고 출력
     if not id_ or str(id_).strip() == "":
         fallback_id = f"auto-id--{uuid.uuid4()}"
-        logger.warning(
-            f"[ID Fallback] 클래스: {cls.__name__} | 원래 ID가 비어있어 자동 생성된 ID 사용: {fallback_id}"
-        )
+        logger.warning("[ID Fallback] %s using generated id %s", cls.__name__, fallback_id)
         id_ = fallback_id
 
-    # 🔧 AssetAdministrationShell 특수 처리
     if cls.__name__ == "AssetAdministrationShell":
         if "asset_information" not in kwargs:
             raise ValueError("AssetAdministrationShell requires asset_information argument.")
@@ -158,7 +100,6 @@ def _create(cls, *args, id_=None, id_short=None, identification=None, **kwargs):
             extension=kwargs.get("extension", ()),
         )
 
-    # 🔧 AssetInformation 특수 처리
     if cls.__name__ == "AssetInformation":
         return cls(
             asset_kind=kwargs.get("asset_kind"),
@@ -168,13 +109,10 @@ def _create(cls, *args, id_=None, id_short=None, identification=None, **kwargs):
             default_thumbnail=kwargs.get("default_thumbnail"),
         )
 
-    # ✅ 일반 클래스 생성
     try:
         return cls(id_=id_, id_short=id_short, *args, **kwargs)
-    except TypeError as e:
-        logger.warning(
-            f"[TypeError] 클래스 생성 실패 시도: {cls.__name__} | ID: {id_} | 오류: {e}"
-        )
+    except TypeError as exc:
+        logger.warning("[TypeError] %s: %s", cls.__name__, exc)
         obj = cls(*args, **kwargs)
         if not hasattr(obj, "identification"):
             return obj
@@ -185,8 +123,6 @@ def _create(cls, *args, id_=None, id_short=None, identification=None, **kwargs):
         if id_short is not None and getattr(obj, "id_short", None) is None:
             setattr(obj, "id_short", id_short)
         return obj
-
-
 
 
 def _prop(id_short: str, value: Any, value_type: str = "string") -> Any:
@@ -237,16 +173,8 @@ def _convert_category(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         _prop("MachineType", machine_type),
         _prop("MachineRole", machine_role),
     ]
-    ident = _ident(
-        sm.get("identification", {}),
-        fallback_id=f"{fallback_prefix}/Category",
-    )
-    submodel = _create(
-        aas.Submodel,
-        id_=getattr(ident, "id", None),
-        id_short="Category",
-        identification=ident,
-    )
+    ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/Category")
+    submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="Category", identification=ident)
     submodel.submodel_element.extend(elements)
     return submodel
 
@@ -265,16 +193,8 @@ def _convert_operation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         _prop("Candidate", False, "boolean"),
         _prop("Selected", False, "boolean"),
     ]
-    ident = _ident(
-        sm.get("identification", {}),
-        fallback_id=f"{fallback_prefix}/Operation",
-    )
-    submodel = _create(
-        aas.Submodel,
-        id_=getattr(ident, "id", None),
-        id_short="Operation",
-        identification=ident,
-    )
+    ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/Operation")
+    submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="Operation", identification=ident)
     submodel.submodel_element.extend(elements)
     return submodel
 
@@ -313,16 +233,8 @@ def _convert_nameplate(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         _prop("SerialNumber", ""),
         _prop("YearOfConstruction", ""),
     ]
-    ident = _ident(
-        sm.get("identification", {}),
-        fallback_id=f"{fallback_prefix}/Nameplate",
-    )
-    submodel = _create(
-        aas.Submodel,
-        id_=getattr(ident, "id", None),
-        id_short="Nameplate",
-        identification=ident,
-    )
+    ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/Nameplate")
+    submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="Nameplate", identification=ident)
     submodel.submodel_element.extend(elements)
     return submodel
 
@@ -330,9 +242,7 @@ def _convert_nameplate(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
 def _convert_technical_data(sm: Dict[str, Any], process: str, *, fallback_prefix: str) -> Any:
     tech_props = []
     for elem in sm.get("submodelElements", []):
-        tech_props.append(
-            _prop(_normalize_id_short(elem.get("idShort", "")), elem.get("value"))
-        )
+        tech_props.append(_prop(_normalize_id_short(elem.get("idShort", "")), elem.get("value")))
 
     technical_area = _collection("TechnicalPropertyAreas", tech_props)
     general_info = _collection(
@@ -345,16 +255,8 @@ def _convert_technical_data(sm: Dict[str, Any], process: str, *, fallback_prefix
         ],
     )
     process_smc = _collection(process or "Process", [general_info, technical_area])
-    ident = _ident(
-        sm.get("identification", {}),
-        fallback_id=f"{fallback_prefix}/TechnicalData",
-    )
-    submodel = _create(
-        aas.Submodel,
-        id_=getattr(ident, "id", None),
-        id_short="TechnicalData",
-        identification=ident,
-    )
+    ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/TechnicalData")
+    submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="TechnicalData", identification=ident)
     submodel.submodel_element.append(process_smc)
     return submodel
 
@@ -397,16 +299,8 @@ def _convert_documentation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         )
         documents.append(doc)
     docs_list = _list("Documents", documents)
-    ident = _ident(
-        sm.get("identification", {}),
-        fallback_id=f"{fallback_prefix}/HandoverDocumentation",
-    )
-    submodel = _create(
-        aas.Submodel,
-        id_=getattr(ident, "id", None),
-        id_short="HandoverDocumentation",
-        identification=ident,
-    )
+    ident = _ident(sm.get("identification", {}), fallback_id=f"{fallback_prefix}/HandoverDocumentation")
+    submodel = _create(aas.Submodel, id_=getattr(ident, "id", None), id_short="HandoverDocumentation", identification=ident)
     submodel.submodel_element.append(docs_list)
     return submodel
 
@@ -423,7 +317,6 @@ _CONVERTERS = {
 def convert_file(path: str) -> Any:
     _require_sdk()
 
-    # 파일 로드 → data에 JSON 할당
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     try:
@@ -432,33 +325,19 @@ def convert_file(path: str) -> Any:
         decoder = json.JSONDecoder()
         data, _ = decoder.raw_decode(text)
 
-    # 여기서 data가 정의됐으니 리스트 초기화
     submodels_list: list[Any] = []
     concepts_list: list[Any] = []
 
-    # 파일명으로 fallback prefix를 결정
     base_name = os.path.splitext(os.path.basename(path))[0]
     prefix = f"http://example.com/{base_name}"
 
     shell_data = data.get("assetAdministrationShells", [{}])[0]
 
-    # Asset 정보 추출 및 Shell 생성
-    asset_ref = (
-        shell_data.get("asset", {})
-        .get("keys", [{}])[0]
-        .get("value", "")
-    )
+    asset_ref = shell_data.get("asset", {}).get("keys", [{}])[0].get("value", "")
     asset_ident = _ident(asset_ref, fallback_id=f"{prefix}/asset")
-    asset_info = _create(
-        aas.AssetInformation,
-        asset_kind="Instance",
-        global_asset_id=asset_ident,
-    )
+    asset_info = _create(aas.AssetInformation, asset_kind="Instance", global_asset_id=asset_ident)
 
-    shell_ident = _ident(
-        shell_data.get("identification", {}),
-        fallback_id=f"{prefix}/aas",
-    )
+    shell_ident = _ident(shell_data.get("identification", {}), fallback_id=f"{prefix}/aas")
     shell = _create(
         aas.AssetAdministrationShell,
         id_=getattr(shell_ident, "id", None),
@@ -467,7 +346,7 @@ def convert_file(path: str) -> Any:
         asset_information=asset_info,
     )
 
-    # Category 서브모델에서 공정 이름 추출
+    # Extract process name from Category submodel
     process = ""
     for sm in data.get("submodels", []):
         if sm.get("idShort") == "Category":
@@ -478,7 +357,7 @@ def convert_file(path: str) -> Any:
                         process = TYPE_PROCESS_MAP.get(val, "")
             break
 
-    # Submodel 변환
+    # Convert submodels
     for sm in data.get("submodels", []):
         sid = sm.get("idShort")
         conv = _CONVERTERS.get(sid)
@@ -489,19 +368,13 @@ def convert_file(path: str) -> Any:
         else:
             new_sm = conv(sm, fallback_prefix=prefix)
         submodels_list.append(new_sm)
-        shell.submodel.append(
-            aas.ModelReference([ ... ])
-        )
+        # Reference placeholder
+        shell.submodel.append(aas.ModelReference([]))
 
-    # ConceptDescription 변환 (필요 시)
-    for cd in data.get("conceptDescriptions", []):
-        # conv_cd = ...
-        # concepts_list.append(conv_cd)
+    # ConceptDescriptions would be converted here if needed
+    for _cd in data.get("conceptDescriptions", []):
         pass
 
-    # 이제 안전하게 environment 생성
-    if AssetAdministrationShellEnvironment is None:
-        raise RuntimeError("Environment 클래스가 없어서 중단합니다.")
     env = AssetAdministrationShellEnvironment(
         asset_administration_shells=[shell],
         submodels=submodels_list,
@@ -510,12 +383,8 @@ def convert_file(path: str) -> Any:
     return env
 
 
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Convert legacy AAS JSON files using basyx-python-sdk"
-    )
+    parser = argparse.ArgumentParser(description="Convert legacy AAS JSON files using basyx-python-sdk")
     parser.add_argument("input_dir", help="Directory with legacy JSON files")
     parser.add_argument("output_dir", help="Directory to write converted files")
     args = parser.parse_args()
@@ -529,7 +398,7 @@ def main() -> None:
         outp = os.path.join(args.output_dir, name)
         try:
             env = convert_file(inp)
-        except Exception as e:
+        except Exception as e:  # pragma: no cover - runtime errors
             print(f"Failed to convert {name}: {e}")
             import traceback
             traceback.print_exc()
@@ -539,5 +408,5 @@ def main() -> None:
         print(f"Converted {name} -> {outp}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - CLI entry
     main()
