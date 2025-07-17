@@ -175,7 +175,16 @@ def _create(cls, *args, id_=None, id_short=None, identification=None, **kwargs):
         logger.warning(
             f"[TypeError] 클래스 생성 실패 시도: {cls.__name__} | ID: {id_} | 오류: {e}"
         )
-        return cls(*args, **kwargs)
+        obj = cls(*args, **kwargs)
+        if not hasattr(obj, "identification"):
+            return obj
+        if getattr(obj, "id", None) is None:
+            setattr(obj, "id", id_)
+        if getattr(obj, "identification", None) is None:
+            setattr(obj, "identification", id_)
+        if id_short is not None and getattr(obj, "id_short", None) is None:
+            setattr(obj, "id_short", id_short)
+        return obj
 
 
 
@@ -407,6 +416,7 @@ _CONVERTERS = {
     "Operational_Data": _convert_operation,
     "Nameplate": _convert_nameplate,
     "Documentation": _convert_documentation,
+    "Technical_Data": _convert_technical_data,
 }
 
 
@@ -426,15 +436,58 @@ def convert_file(path: str) -> Any:
     submodels_list: list[Any] = []
     concepts_list: list[Any] = []
 
+    # 파일명으로 fallback prefix를 결정
+    base_name = os.path.splitext(os.path.basename(path))[0]
+    prefix = f"http://example.com/{base_name}"
+
     shell_data = data.get("assetAdministrationShells", [{}])[0]
-    # … identification, shell 생성 로직 …
+
+    # Asset 정보 추출 및 Shell 생성
+    asset_ref = (
+        shell_data.get("asset", {})
+        .get("keys", [{}])[0]
+        .get("value", "")
+    )
+    asset_ident = _ident(asset_ref, fallback_id=f"{prefix}/asset")
+    asset_info = _create(
+        aas.AssetInformation,
+        asset_kind="Instance",
+        global_asset_id=asset_ident,
+    )
+
+    shell_ident = _ident(
+        shell_data.get("identification", {}),
+        fallback_id=f"{prefix}/aas",
+    )
+    shell = _create(
+        aas.AssetAdministrationShell,
+        id_=getattr(shell_ident, "id", None),
+        id_short=shell_data.get("idShort", base_name),
+        identification=shell_ident,
+        asset_information=asset_info,
+    )
+
+    # Category 서브모델에서 공정 이름 추출
+    process = ""
+    for sm in data.get("submodels", []):
+        if sm.get("idShort") == "Category":
+            for elem in sm.get("submodelElements", []):
+                if elem.get("idShort") == "Type":
+                    val = elem.get("value")
+                    if isinstance(val, str):
+                        process = TYPE_PROCESS_MAP.get(val, "")
+            break
 
     # Submodel 변환
     for sm in data.get("submodels", []):
-        conv = _CONVERTERS.get(sm.get("idShort"))
-        if not conv and sm.get("idShort") != "Technical_Data":
+        sid = sm.get("idShort")
+        conv = _CONVERTERS.get(sid)
+        if not conv:
             continue
-        new_sm = conv(sm, process=process, fallback_prefix=prefix)
+        if sid == "Technical_Data":
+            new_sm = conv(sm, process=process, fallback_prefix=prefix)
+        else:
+            new_sm = conv(sm, fallback_prefix=prefix)
         submodels_list.append(new_sm)
         shell.submodel.append(
             aas.ModelReference([ ... ])
