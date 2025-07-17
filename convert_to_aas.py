@@ -424,7 +424,12 @@ def convert_file(path: str) -> Any:
             new_sm = conv(sm, fallback_prefix=prefix)
         submodels_list.append(new_sm)
         # Reference placeholder
-        shell.submodel.append(aas.ModelReference([]))
+        # ``submodel`` is a mutable collection which is implemented as a
+        # ``set`` in older versions of the BaSyx SDK.  Using ``append`` here
+        # raises ``AttributeError`` when ``submodel`` is a set, therefore we
+        # use ``add`` which works for both ``set`` and ``list`` like
+        # implementations.
+        shell.submodel.add(aas.ModelReference([]))
 
     # ConceptDescriptions would be converted here if needed
     for _cd in data.get("conceptDescriptions", []):
