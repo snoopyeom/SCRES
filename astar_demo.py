@@ -2,20 +2,26 @@
 
 This script replicates the functionality that originally lived in the notebook
 ``A star algorithm.ipynb``.  It optionally loads Asset Administration Shell (AAS)
-JSON files using ``basyx-python-sdk`` and then performs an A* search on a small
-demo graph.  The found path is displayed both textually and in a simple ASCII
-grid so the result can be visualised without additional libraries.
+JSON files using the BaSyx SDK bundled in ``sdk/`` and then performs an A* search
+on a small demo graph.  The found path is displayed both textually and in a
+simple ASCII grid so the result can be visualised without additional libraries.
 """
 
 import argparse
 import os
+import sys
 from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
 
 from graph import Graph, Node
 from a_star import AStar
 
-# ``basyx-python-sdk`` is optional.  If it is missing the script will still run
+# Use the local SDK if available
+SDK_DIR = os.path.join(os.path.dirname(__file__), "sdk")
+if SDK_DIR not in sys.path:
+    sys.path.insert(0, SDK_DIR)
+
+# BaSyx SDK is optional. If it is missing the script will still run
 try:
     from basyx.aas.adapter.json import read_aas_json_file
 except ImportError:  # basyx library might not be available

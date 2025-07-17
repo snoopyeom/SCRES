@@ -5,7 +5,7 @@ notebook `A star algorithm.ipynb` has been replaced by `astar_demo.py` which is
 fully runnable from the command line.
 
 ``astar_demo.py`` optionally loads Asset Administration Shell (AAS) JSON files
-from the given directory when the `basyx-python-sdk` is installed.  The loaded
+from the given directory when the bundled BaSyx SDK is available. The loaded
 AAS `idShort` values and their submodel names are printed before running the
 search.
 
@@ -32,10 +32,9 @@ This approach is more reliable than depending on IRDI codes.
 
 ## Converting legacy AAS files
 
-`convert_to_aas.py` converts the irregular JSON files found in `설비 json 파일/` to a simplified structure that matches the normalised AAS layout.  The tool relies on `basyx-python-sdk` to write the JSON output, so install the package first.
+`convert_to_aas.py` converts the irregular JSON files found in `설비 json 파일/` to a simplified structure that matches the normalised AAS layout.  The tool relies on the BaSyx SDK bundled in the `sdk/` directory to write the JSON output.
 
 ```bash
-pip install basyx-python-sdk
 python convert_to_aas.py "설비 json 파일" converted
 ```
 
@@ -47,15 +46,8 @@ name, so each converted file receives deterministic IDs without manual edits.
 
 ## Building AAS with BaSyx
 
-`export_aasx.py` demonstrates how to load the normalised JSON files
+`export_aasx.py` (not included here) demonstrates how to load the normalised JSON files
 produced by `convert_to_aas.py` and export them as an `.aasx` package using the
-`basyx-python-sdk`.
-
-Install the SDK and run the tool:
-
-```bash
-pip install basyx-python-sdk
-python export_aasx.py converted/example.json example.aasx
-```
+bundled BaSyx SDK.
 
 The resulting `example.aasx` can be opened in any compliant AAS tool.
