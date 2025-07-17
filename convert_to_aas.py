@@ -8,10 +8,55 @@ from typing import Any, Dict
 # Optional import for basyx SDK
 try:
     from basyx.aas import model as aas
+    from basyx.aas.environment import AssetAdministrationShellEnvironment
     from basyx.aas.adapter.json import write_aas_json_file
-except Exception:
-    aas = None  # type: ignore
-    write_aas_json_file = None  # type: ignore
+    print("[✅ SDK import 성공]")
+except Exception as e:
+    print(f"[❌ SDK import 실패] {e!r}")
+    aas = None
+    write_aas_json_file = None
+
+import importlib.util
+print(importlib.util.find_spec("basyx"))
+
+# ── convert_to_aas.py 상단 ──
+
+import logging
+logger = logging.getLogger("AAS_Converter")
+
+# Optional import for basyx SDK
+try:
+    from basyx.aas import model as aas
+    # environment 클래스 여러 위치에서 시도 import
+    try:
+        from basyx.aas.environment import AssetAdministrationShellEnvironment
+        logger.info("✅ imported AssetAdministrationShellEnvironment from basyx.aas.environment")
+    except ImportError:
+        try:
+            from basyx.aas.model.environment import AssetAdministrationShellEnvironment
+            logger.info("✅ imported AssetAdministrationShellEnvironment from basyx.aas.model.environment")
+        except ImportError as e:
+            logger.error(f"❌ AssetAdministrationShellEnvironment import 실패: {e!r}")
+            AssetAdministrationShellEnvironment = None  # fallback
+    # JSON 어댑터 import
+    try:
+        from basyx.aas.adapter.json import write_aas_json_file
+        logger.info("✅ imported write_aas_json_file")
+    except ImportError:
+        logger.error("❌ write_aas_json_file import 실패")
+        write_aas_json_file = None
+
+    logger.info("✅ basyx SDK import 성공")
+except Exception as e:
+    logger.error(f"❌ basyx SDK 전체 import 실패: {e!r}")
+    aas = None
+    AssetAdministrationShellEnvironment = None
+    write_aas_json_file = None
+
+def _require_sdk() -> None:
+    if aas is None or write_aas_json_file is None or AssetAdministrationShellEnvironment is None:
+        raise RuntimeError("basyx-python-sdk의 필요한 모듈을 찾을 수 없습니다.")
+
 
 # Mapping for category/type to process names
 TYPE_PROCESS_MAP = {
@@ -75,61 +120,64 @@ def _ident(data: Any, fallback_id: str = "http://example.com/dummy-id") -> Any:
             return ident
 
 
-def _create(cls: Any, /, *args: Any, **kwargs: Any) -> Any:
-    print(f"[DEBUG] _create called: cls={cls!r}, args={args!r}, kwargs={kwargs!r}")
-    if aas is None:
-        return None
+import uuid
+import logging
 
-    if isinstance(cls, str):
-        print(f"ERROR: _create called with str as cls: {cls!r}")
-        raise TypeError(f"Invalid class passed to _create(): {cls!r}")
-    if not hasattr(cls, "__call__"):
-        print(f"ERROR: _create called with non-callable cls: {cls!r}")
-        raise TypeError(f"Invalid class passed to _create(): {cls!r}")
+# 🔧 로그 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("AAS_Converter")
 
-    ident = kwargs.pop("identification", None)
-    fallback_id = "http://example.com/fallback-id"
+def _create(cls, *args, id_=None, id_short=None, identification=None, **kwargs):
+    # identification을 id_로 보정
+    if identification is not None and not id_:
+        id_ = identification
 
-    # ident 보정
-    if ident is not None and not hasattr(ident, "id"):
-        print(f"WARNING: ident is not Identifier, got {type(ident)}: {ident!r}. Wrapping as Identifier.")
-        try:
-            ident = aas.Identifier(id=str(ident), id_type="Custom")
-        except TypeError:
-            ident = str(ident)
+    # 🚨 문제 로그: id_가 비어있거나 None일 경우 경고 출력
+    if not id_ or str(id_).strip() == "":
+        fallback_id = f"auto-id--{uuid.uuid4()}"
+        logger.warning(
+            f"[ID Fallback] 클래스: {cls.__name__} | 원래 ID가 비어있어 자동 생성된 ID 사용: {fallback_id}"
+        )
+        id_ = fallback_id
 
-    id_value = kwargs.pop("id_", None)
-    if hasattr(ident, "id"):
-        id_value = ident.id
-    print(f"[DEBUG] ident type: {type(ident)}, ident: {ident!r}")
-    print(f"[DEBUG] id_value: {id_value!r}")
+    # 🔧 AssetAdministrationShell 특수 처리
+    if cls.__name__ == "AssetAdministrationShell":
+        if "asset_information" not in kwargs:
+            raise ValueError("AssetAdministrationShell requires asset_information argument.")
+        return cls(
+            asset_information=kwargs["asset_information"],
+            id_=id_,
+            id_short=id_short,
+            display_name=kwargs.get("display_name"),
+            category=kwargs.get("category"),
+            description=kwargs.get("description"),
+            administration=kwargs.get("administration"),
+            submodel=kwargs.get("submodel"),
+            derived_from=kwargs.get("derived_from"),
+            embedded_data_specifications=kwargs.get("embedded_data_specifications", ()),
+            extension=kwargs.get("extension", ()),
+        )
 
-    if not id_value:
-        id_value = fallback_id
+    # 🔧 AssetInformation 특수 처리
+    if cls.__name__ == "AssetInformation":
+        return cls(
+            asset_kind=kwargs.get("asset_kind"),
+            global_asset_id=kwargs.get("global_asset_id"),
+            specific_asset_id=kwargs.get("specific_asset_id", ()),
+            asset_type=kwargs.get("asset_type"),
+            default_thumbnail=kwargs.get("default_thumbnail"),
+        )
 
-    # cls가 id 인자를 받는지 체크
-    accepts_id_kwarg = hasattr(cls, "__init__") and "id" in cls.__init__.__code__.co_varnames
-    if accepts_id_kwarg:
-        kwargs["id"] = id_value
-
+    # ✅ 일반 클래스 생성
     try:
-        if ident is not None:
-            return cls(*args, identification=ident, **kwargs)
-        return cls(*args, **kwargs)
+        return cls(id_=id_, id_short=id_short, *args, **kwargs)
     except TypeError as e:
-        print(f"TypeError on _create({cls}, args={args}, kwargs={kwargs}): {e}")
-        import traceback
-        traceback.print_exc()
-        obj = cls(*args, **kwargs)
-        if ident is not None:
-            if hasattr(obj, "identification"):
-                setattr(obj, "identification", ident)
-            elif hasattr(obj, "id"):
-                try:
-                    setattr(obj, "id", ident.id)
-                except Exception:
-                    setattr(obj, "id", ident)
-        return obj
+        logger.warning(
+            f"[TypeError] 클래스 생성 실패 시도: {cls.__name__} | ID: {id_} | 오류: {e}"
+        )
+        return cls(*args, **kwargs)
+
+
 
 
 def _prop(id_short: str, value: Any, value_type: str = "string") -> Any:
@@ -364,6 +412,8 @@ _CONVERTERS = {
 
 def convert_file(path: str) -> Any:
     _require_sdk()
+
+    # 파일 로드 → data에 JSON 할당
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     try:
@@ -372,77 +422,41 @@ def convert_file(path: str) -> Any:
         decoder = json.JSONDecoder()
         data, _ = decoder.raw_decode(text)
 
+    # 여기서 data가 정의됐으니 리스트 초기화
+    submodels_list: list[Any] = []
+    concepts_list: list[Any] = []
+
     shell_data = data.get("assetAdministrationShells", [{}])[0]
+    # … identification, shell 생성 로직 …
 
-    # fallback ID 생성 (파일 이름 기반으로)
-    base_name = os.path.splitext(os.path.basename(path))[0].replace(" ", "_")
-    fallback_id = f"http://example.com/{base_name}"
-    prefix = fallback_id
-
-    # identification 객체 생성
-    ident = _ident(shell_data.get("identification", {}), fallback_id=fallback_id)
-    id_ = getattr(ident, "id", "") if ident else ""
-
-    # 안전한 assetInformation 생성
-    asset_info = aas.AssetInformation(
-        asset_kind=aas.AssetKind.INSTANCE,
-        global_asset_id="http://example.com/dummy-asset"
-    )
-
-    # AAS 객체 생성
-    shell = _create(
-        aas.AssetAdministrationShell,
-        id_=id_,
-        id_short=shell_data.get("idShort", "Shell"),
-        identification=ident,
-        asset_information=asset_info
-    )
-
-    # AAS 환경 생성
-    env = aas.AssetAdministrationShellEnvironment(
-        assetAdministrationShells=[shell],
-        submodels=[],
-        assets=data.get("assets", []),
-        conceptDescriptions=[],
-    )
-
-    # 기계 타입 → 공정명 추출
-    machine_type = None
+    # Submodel 변환
     for sm in data.get("submodels", []):
-        if sm.get("idShort") == "Category":
-            for elem in sm.get("submodelElements", []):
-                if elem.get("idShort") == "Type":
-                    machine_type = elem.get("value")
-                    break
-            break
-    process = TYPE_PROCESS_MAP.get(machine_type, machine_type or "Process")
-
-    # Submodel 변환 처리
-    for sm in data.get("submodels", []):
-        cname = sm.get("idShort")
-        conv = _CONVERTERS.get(cname)
-        if conv:
-            new_sm = conv(sm, fallback_prefix=prefix)
-        elif cname == "Technical_Data":
-            new_sm = _convert_technical_data(sm, process, fallback_prefix=prefix)
-        else:
+        conv = _CONVERTERS.get(sm.get("idShort"))
+        if not conv and sm.get("idShort") != "Technical_Data":
             continue
-
-        env.submodels.append(new_sm)
+        new_sm = conv(sm, process=process, fallback_prefix=prefix)
+        submodels_list.append(new_sm)
         shell.submodel.append(
-            aas.ModelReference(
-                [
-                    aas.Key(
-                        type=aas.KeyTypes.SUBMODEL,
-                        id_type=new_sm.identification.id_type,
-                        value=new_sm.identification.id,
-                        local=True,
-                    )
-                ]
-            )
+            aas.ModelReference([ ... ])
         )
 
+    # ConceptDescription 변환 (필요 시)
+    for cd in data.get("conceptDescriptions", []):
+        # conv_cd = ...
+        # concepts_list.append(conv_cd)
+        pass
+
+    # 이제 안전하게 environment 생성
+    if AssetAdministrationShellEnvironment is None:
+        raise RuntimeError("Environment 클래스가 없어서 중단합니다.")
+    env = AssetAdministrationShellEnvironment(
+        asset_administration_shells=[shell],
+        submodels=submodels_list,
+        concept_descriptions=concepts_list,
+    )
     return env
+
+
 
 
 def main() -> None:

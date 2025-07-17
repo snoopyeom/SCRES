@@ -1,6 +1,11 @@
+import sys
+import os
+
+# 🔥 경로 먼저 추가해줘야 아래 import가 작동함
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import types
 import importlib
-
 import convert_to_aas
 
 class Dummy:
