@@ -29,3 +29,13 @@ machines for each manufacturing step.  It determines the machine's process by
 reading the ``Type`` property inside the ``Category`` submodel, mapping values
 such as ``"Hot Former"`` or ``"CNC LATHE"`` to steps like Forging or Turning.
 This approach is more reliable than depending on IRDI codes.
+
+## Converting legacy AAS files
+
+`convert_to_aas.py` converts the irregular JSON files found in `설비 json 파일/` to a simplified structure that matches the normalised AAS layout.  Run the script with the input and output directories:
+
+```bash
+python convert_to_aas.py "설비 json 파일" converted
+```
+
+Converted files will be written to the specified output directory.
