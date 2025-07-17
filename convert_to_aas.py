@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import uuid
 import logging
 from typing import Any, Dict
@@ -10,8 +11,15 @@ from typing import Any, Dict
 logger = logging.getLogger("AAS_Converter")
 logging.basicConfig(level=logging.INFO)
 
-# Attempt to import basyx-python-sdk. The package structure changed
-# across versions so we try multiple locations for the Environment class.
+# Ensure the bundled SDK is importable if available
+SDK_DIR = os.path.join(os.path.dirname(__file__), "sdk")
+if os.path.isdir(SDK_DIR) and SDK_DIR not in sys.path:
+    sys.path.insert(0, SDK_DIR)
+
+# Attempt to import basyx-python-sdk.  The SDK is bundled in this repository
+# under the ``sdk/`` directory, so adding that path above allows importing it
+# without installing the package system-wide.  The Environment class changed
+# location across versions, therefore we try both namespaces.
 try:
     from basyx.aas import model as aas
     try:
