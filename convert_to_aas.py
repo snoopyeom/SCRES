@@ -2,7 +2,14 @@
 import argparse
 import json
 import os
+import io
 from typing import Dict, Any
+
+try:
+    from basyx.aas.adapter.json import read_aas_json_file, write_aas_json_file
+except Exception:  # pragma: no cover - basyx may not be installed
+    read_aas_json_file = None  # type: ignore
+    write_aas_json_file = None  # type: ignore
 
 
 def _copy_identification(src: Dict[str, Any]) -> Dict[str, Any]:
@@ -91,7 +98,10 @@ _CONVERTERS = {
 }
 
 
-def convert_file(path: str) -> Dict[str, Any]:
+def convert_file(path: str):
+    if read_aas_json_file is None:
+        raise RuntimeError("basyx-python-sdk is required to run this script")
+
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -125,7 +135,9 @@ def convert_file(path: str) -> Dict[str, Any]:
                     }
                 ]
             })
-    return new_env
+    env_json = json.dumps(new_env, ensure_ascii=False)
+    env = read_aas_json_file(io.StringIO(env_json))
+    return env
 
 
 def main() -> None:
@@ -141,12 +153,14 @@ def main() -> None:
         inp = os.path.join(args.input_dir, name)
         outp = os.path.join(args.output_dir, name)
         try:
-            new_env = convert_file(inp)
+            env = convert_file(inp)
         except Exception as e:  # pragma: no cover - convenience script
             print(f"Failed to convert {name}: {e}")
             continue
         with open(outp, "w", encoding="utf-8") as f:
-            json.dump(new_env, f, ensure_ascii=False, indent=2)
+            if write_aas_json_file is None:
+                raise RuntimeError("basyx-python-sdk is required to run this script")
+            write_aas_json_file(f, env)
         print(f"Converted {name} -> {outp}")
 
 
