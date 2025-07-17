@@ -42,18 +42,15 @@ Converted files will be written to the specified output directory.
 
 ## Building AAS with BaSyx
 
-`BaSyxAasCreator.java` demonstrates how to load the normalised JSON files
+`export_aasx.py` demonstrates how to load the normalised JSON files
 produced by `convert_to_aas.py` and export them as an `.aasx` package using the
-Eclipse BaSyx SDK.  Place the BaSyx SDK JAR on the classpath and compile:
+`basyx-python-sdk`.
+
+Install the SDK and run the tool:
 
 ```bash
-javac -cp basyx-sdk.jar BaSyxAasCreator.java
-```
-
-Run the tool with the input JSON and desired output package path:
-
-```bash
-java -cp basyx-sdk.jar:. BaSyxAasCreator converted/example.json example.aasx
+pip install basyx-python-sdk
+python export_aasx.py converted/example.json example.aasx
 ```
 
 The resulting `example.aasx` can be opened in any compliant AAS tool.
