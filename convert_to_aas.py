@@ -67,6 +67,30 @@ def _ident(data: Dict[str, Any]) -> Any:
             return aas.Identifier(ident)
 
 
+def _create(cls: Any, /, *args: Any, **kwargs: Any) -> Any:
+    """Instantiate ``cls`` with fallbacks for SDK API variations."""
+    if aas is None:  # pragma: no cover - handled in _require_sdk
+        return None
+    ident = kwargs.pop("identification", None)
+    try:
+        if ident is not None:
+            return cls(*args, identification=ident, **kwargs)
+        return cls(*args, **kwargs)
+    except TypeError:
+        # remove identification and try again
+        obj = cls(*args, **kwargs)
+        if ident is not None:
+            # try to set attribute name variants
+            if hasattr(obj, "identification"):
+                setattr(obj, "identification", ident)
+            elif hasattr(obj, "id"):
+                try:
+                    setattr(obj, "id", ident.id)  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover - best effort
+                    setattr(obj, "id", ident)
+        return obj
+
+
 def _prop(id_short: str, value: Any, value_type: str = "string") -> Any:
     if aas is None:  # pragma: no cover - handled in _require_sdk
         return None
@@ -118,7 +142,8 @@ def _convert_category(sm: Dict[str, Any]) -> Any:
         _prop("MachineType", machine_type),
         _prop("MachineRole", machine_role),
     ]
-    submodel = aas.Submodel(
+    submodel = _create(
+        aas.Submodel,
         id_short="Category",
         identification=_ident(sm.get("identification", {})),
     )
@@ -141,7 +166,8 @@ def _convert_operation(sm: Dict[str, Any]) -> Any:
         _prop("Candidate", False, "boolean"),
         _prop("Selected", False, "boolean"),
     ]
-    submodel = aas.Submodel(
+    submodel = _create(
+        aas.Submodel,
         id_short="Operation",
         identification=_ident(sm.get("identification", {})),
     )
@@ -183,7 +209,8 @@ def _convert_nameplate(sm: Dict[str, Any]) -> Any:
         _prop("SerialNumber", ""),
         _prop("YearOfConstruction", ""),
     ]
-    submodel = aas.Submodel(
+    submodel = _create(
+        aas.Submodel,
         id_short="Nameplate",
         identification=_ident(sm.get("identification", {})),
     )
@@ -209,7 +236,8 @@ def _convert_technical_data(sm: Dict[str, Any], process: str) -> Any:
         ],
     )
     process_smc = _collection(process or "Process", [general_info, technical_area])
-    submodel = aas.Submodel(
+    submodel = _create(
+        aas.Submodel,
         id_short="TechnicalData",
         identification=_ident(sm.get("identification", {})),
     )
@@ -256,7 +284,8 @@ def _convert_documentation(sm: Dict[str, Any]) -> Any:
         documents.append(doc)
 
     docs_list = _list("Documents", documents)
-    submodel = aas.Submodel(
+    submodel = _create(
+        aas.Submodel,
         id_short="HandoverDocumentation",
         identification=_ident(sm.get("identification", {})),
     )
@@ -280,7 +309,8 @@ def convert_file(path: str) -> Any:
         data = json.load(f)
 
     shell_data = data.get("assetAdministrationShells", [{}])[0]
-    shell = aas.AssetAdministrationShell(
+    shell = _create(
+        aas.AssetAdministrationShell,
         id_short=shell_data.get("idShort", "Shell"),
         identification=_ident(shell_data.get("identification", {})),
         asset=shell_data.get("asset", {}),
