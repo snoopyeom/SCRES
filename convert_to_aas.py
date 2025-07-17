@@ -19,23 +19,46 @@ if os.path.isdir(SDK_DIR) and SDK_DIR not in sys.path:
 # Attempt to import basyx-python-sdk.  The SDK is bundled in this repository
 # under the ``sdk/`` directory, so adding that path above allows importing it
 # without installing the package system-wide.  The Environment class changed
-# location across versions, therefore we try both namespaces.
+# location across versions, therefore we try both namespaces.  Older snapshots of
+# the SDK shipped without an ``environment`` module.  In that case we fall back
+# to a minimal implementation based on :class:`DictObjectStore`.
 try:
     from basyx.aas import model as aas
     try:
-        from basyx.aas.environment import AssetAdministrationShellEnvironment
+        from basyx.aas.environment import AssetAdministrationShellEnvironment  # type: ignore
     except ImportError:
-        from basyx.aas.model.environment import AssetAdministrationShellEnvironment
+        try:
+            from basyx.aas.model.environment import AssetAdministrationShellEnvironment  # type: ignore
+        except ImportError:  # pragma: no cover - fallback path
+            AssetAdministrationShellEnvironment = None  # type: ignore
     from basyx.aas.adapter.json import write_aas_json_file
+    from basyx.aas.model import provider as aas_provider
     logger.info("✅ basyx SDK import 성공")
 except Exception as exc:  # pragma: no cover - import failure path
     logger.error("❌ basyx SDK import 실패: %r", exc)
     aas = None
     AssetAdministrationShellEnvironment = None
     write_aas_json_file = None
+    aas_provider = None
+
+# Provide a very small fallback environment implementation if the SDK does not
+# ship one.  This fallback only implements the parts used by this script and the
+# bundled JSON serializer.
+if aas is not None and AssetAdministrationShellEnvironment is None and aas_provider is not None:
+    class AssetAdministrationShellEnvironment(aas_provider.DictObjectStore):  # type: ignore
+        def __init__(self, *, asset_administration_shells=None, submodels=None, concept_descriptions=None):
+            super().__init__()
+            for obj in asset_administration_shells or []:
+                self.add(obj)
+            for obj in submodels or []:
+                self.add(obj)
+            for obj in concept_descriptions or []:
+                self.add(obj)
+    logger.info("ℹ️ using fallback AssetAdministrationShellEnvironment")
 
 def _require_sdk() -> None:
-    if aas is None or AssetAdministrationShellEnvironment is None or write_aas_json_file is None:
+    """Ensure the basyx SDK (or the bundled fallback) is available."""
+    if aas is None or write_aas_json_file is None:
         raise RuntimeError("basyx-python-sdk is required to run this script")
 
 # Mapping for category/type to process names
