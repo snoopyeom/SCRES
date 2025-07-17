@@ -133,7 +133,7 @@ def _normalize_id_short(name: str) -> str:
     return "".join(p.capitalize() for p in parts)
 
 
-def _convert_category(sm: Dict[str, Any]) -> Any:
+def _convert_category(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     machine_type = ""
     machine_role = ""
     for elem in sm.get("submodelElements", []):
@@ -150,13 +150,16 @@ def _convert_category(sm: Dict[str, Any]) -> Any:
     submodel = _create(
         aas.Submodel,
         id_short="Category",
-        identification=_ident(sm.get("identification", {})),
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/Category",
+        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
 
 
-def _convert_operation(sm: Dict[str, Any]) -> Any:
+def _convert_operation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     status = ""
     for elem in sm.get("submodelElements", []):
         if elem.get("idShort") == "Machine_Status":
@@ -174,13 +177,16 @@ def _convert_operation(sm: Dict[str, Any]) -> Any:
     submodel = _create(
         aas.Submodel,
         id_short="Operation",
-        identification=_ident(sm.get("identification", {})),
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/Operation",
+        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
 
 
-def _convert_nameplate(sm: Dict[str, Any]) -> Any:
+def _convert_nameplate(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     manufacturer = ""
     address = ""
     for elem in sm.get("submodelElements", []):
@@ -217,13 +223,16 @@ def _convert_nameplate(sm: Dict[str, Any]) -> Any:
     submodel = _create(
         aas.Submodel,
         id_short="Nameplate",
-        identification=_ident(sm.get("identification", {})),
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/Nameplate",
+        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
 
 
-def _convert_technical_data(sm: Dict[str, Any], process: str) -> Any:
+def _convert_technical_data(sm: Dict[str, Any], process: str, *, fallback_prefix: str) -> Any:
     tech_props = []
     for elem in sm.get("submodelElements", []):
         tech_props.append(
@@ -244,13 +253,16 @@ def _convert_technical_data(sm: Dict[str, Any], process: str) -> Any:
     submodel = _create(
         aas.Submodel,
         id_short="TechnicalData",
-        identification=_ident(sm.get("identification", {})),
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/TechnicalData",
+        ),
     )
     submodel.submodel_element.append(process_smc)
     return submodel
 
 
-def _convert_documentation(sm: Dict[str, Any]) -> Any:
+def _convert_documentation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
     documents = []
     for elem in sm.get("submodelElements", []):
         digital_file = _collection(
@@ -292,7 +304,10 @@ def _convert_documentation(sm: Dict[str, Any]) -> Any:
     submodel = _create(
         aas.Submodel,
         id_short="HandoverDocumentation",
-        identification=_ident(sm.get("identification", {})),
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/HandoverDocumentation",
+        ),
     )
     submodel.submodel_element.append(docs_list)
     return submodel
@@ -323,6 +338,7 @@ def convert_file(path: str) -> Any:
     # fallback ID 생성 (파일 이름 기반으로)
     base_name = os.path.splitext(os.path.basename(path))[0].replace(" ", "_")
     fallback_id = f"http://example.com/{base_name}"
+    prefix = fallback_id
     
     # identification 객체 생성
     ident = _ident(shell_data.get("identification", {}), fallback_id=fallback_id)
@@ -367,9 +383,9 @@ def convert_file(path: str) -> Any:
         cname = sm.get("idShort")
         conv = _CONVERTERS.get(cname)
         if conv:
-            new_sm = conv(sm)
+            new_sm = conv(sm, fallback_prefix=prefix)
         elif cname == "Technical_Data":
-            new_sm = _convert_technical_data(sm, process)
+            new_sm = _convert_technical_data(sm, process, fallback_prefix=prefix)
         else:
             continue
 
