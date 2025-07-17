@@ -2,14 +2,7 @@
 import argparse
 import json
 import os
-import io
 from typing import Dict, Any
-
-try:
-    from basyx.aas.adapter.json import read_aas_json_file, write_aas_json_file
-except Exception:  # pragma: no cover - basyx may not be installed
-    read_aas_json_file = None  # type: ignore
-    write_aas_json_file = None  # type: ignore
 
 
 def _copy_identification(src: Dict[str, Any]) -> Dict[str, Any]:
@@ -25,13 +18,13 @@ def _convert_category(sm: Dict[str, Any]) -> Dict[str, Any]:
         if elem.get("idShort") == "Type":
             new_elem.append({
                 "idShort": "MachineType",
-                "modelType": {"name": "Property"},
+                "modelType": "Property",
                 "value": elem.get("value"),
                 "valueType": "string",
             })
     return {
         "idShort": "Category",
-        "modelType": {"name": "Submodel"},
+        "modelType": "Submodel",
         "identification": _copy_identification(sm.get("identification", {})),
         "submodelElements": new_elem,
     }
@@ -43,13 +36,13 @@ def _convert_operation(sm: Dict[str, Any]) -> Dict[str, Any]:
         if elem.get("idShort") == "Machine_Status":
             new_elem.append({
                 "idShort": "MachineStatus",
-                "modelType": {"name": "Property"},
+                "modelType": "Property",
                 "value": elem.get("value"),
                 "valueType": "string",
             })
     return {
         "idShort": "Operation",
-        "modelType": {"name": "Submodel"},
+        "modelType": "Submodel",
         "identification": _copy_identification(sm.get("identification", {})),
         "submodelElements": new_elem,
     }
@@ -66,11 +59,11 @@ def _convert_nameplate(sm: Dict[str, Any]) -> Dict[str, Any]:
             address = elem.get("value")
     addr_info = {
         "idShort": "AddressInformation",
-        "modelType": {"name": "SubmodelElementCollection"},
+        "modelType": "SubmodelElementCollection",
         "value": [
             {
                 "idShort": "Street",
-                "modelType": {"name": "MultiLanguageProperty"},
+                "modelType": "MultiLanguageProperty",
                 "value": {"en": address or ""},
             }
         ],
@@ -78,14 +71,14 @@ def _convert_nameplate(sm: Dict[str, Any]) -> Dict[str, Any]:
     new_elem = [
         {
             "idShort": "ManufacturerName",
-            "modelType": {"name": "MultiLanguageProperty"},
+            "modelType": "MultiLanguageProperty",
             "value": {"en": manufacturer or ""},
         },
         addr_info,
     ]
     return {
         "idShort": "Nameplate",
-        "modelType": {"name": "Submodel"},
+        "modelType": "Submodel",
         "identification": _copy_identification(sm.get("identification", {})),
         "submodelElements": new_elem,
     }
@@ -98,23 +91,34 @@ _CONVERTERS = {
 }
 
 
-def convert_file(path: str):
-    if read_aas_json_file is None:
-        raise RuntimeError("basyx-python-sdk is required to run this script")
+def _normalize_modeltypes(obj: Any) -> None:
+    """Recursively convert ``modelType`` dicts to plain strings."""
+    if isinstance(obj, dict):
+        mt = obj.get("modelType")
+        if isinstance(mt, dict) and "name" in mt:
+            obj["modelType"] = mt["name"]
+        for v in obj.values():
+            _normalize_modeltypes(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            _normalize_modeltypes(v)
 
+
+def convert_file(path: str) -> Dict[str, Any]:
+    """Convert a legacy AAS JSON file and return the new environment."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     shell = data.get("assetAdministrationShells", [{}])[0]
+    new_shell = {
+        "idShort": shell.get("idShort", "Shell"),
+        "modelType": "AssetAdministrationShell",
+        "identification": _copy_identification(shell.get("identification", {})),
+        "asset": shell.get("asset", {}),
+        "submodels": [],
+    }
     new_env = {
-        "assetAdministrationShells": [
-            {
-                "idShort": shell.get("idShort", "Shell"),
-                "modelType": {"name": "AssetAdministrationShell"},
-                "identification": _copy_identification(shell.get("identification", {})),
-                "submodels": [],
-            }
-        ],
+        "assetAdministrationShells": [new_shell],
         "submodels": [],
         "assets": data.get("assets", []),
         "conceptDescriptions": [],
@@ -135,9 +139,8 @@ def convert_file(path: str):
                     }
                 ]
             })
-    env_json = json.dumps(new_env, ensure_ascii=False)
-    env = read_aas_json_file(io.StringIO(env_json))
-    return env
+    _normalize_modeltypes(new_env)
+    return new_env
 
 
 def main() -> None:
@@ -158,9 +161,7 @@ def main() -> None:
             print(f"Failed to convert {name}: {e}")
             continue
         with open(outp, "w", encoding="utf-8") as f:
-            if write_aas_json_file is None:
-                raise RuntimeError("basyx-python-sdk is required to run this script")
-            write_aas_json_file(f, env)
+            json.dump(env, f, ensure_ascii=False, indent=2)
         print(f"Converted {name} -> {outp}")
 
 
