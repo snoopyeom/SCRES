@@ -1,8 +1,21 @@
-"""Convert legacy AAS JSON files to a simplified standard structure."""
+"""Convert legacy AAS JSON files using the BaSyx object model."""
+
+from __future__ import annotations
+
 import argparse
 import json
 import os
-from typing import Dict, Any
+from typing import Any, Dict
+
+# ``basyx-python-sdk`` is required for this script.  All imports are optional so
+# that the file can be parsed even when the library is missing.
+try:  # pragma: no cover - basyx might not be installed
+    from basyx.aas import model as aas
+    from basyx.aas.adapter.json import write_aas_json_file
+except Exception:  # pragma: no cover - basyx might not be installed
+    aas = None  # type: ignore
+    write_aas_json_file = None  # type: ignore
+
 
 # Mapping of Category/Type values to process names
 TYPE_PROCESS_MAP = {
@@ -28,22 +41,62 @@ PROPERTY_NAME_MAP = {
 }
 
 
+def _require_sdk() -> None:
+    """Raise ``RuntimeError`` if ``basyx-python-sdk`` is missing."""
+
+    if aas is None or write_aas_json_file is None:
+        raise RuntimeError("basyx-python-sdk is required to run this script")
+
+
+def _ident(data: Dict[str, Any]) -> Any:
+    """Return an Identification object from ``data``."""
+
+    if aas is None:  # pragma: no cover - handled in _require_sdk
+        return None
+    return aas.Identifier(
+        id=data.get("id", ""),
+        id_type=data.get("idType", "Custom"),
+    )
+
+
+def _prop(id_short: str, value: Any, value_type: str = "string") -> Any:
+    if aas is None:  # pragma: no cover - handled in _require_sdk
+        return None
+    return aas.Property(id_short=id_short, value=value, value_type=value_type)
+
+
+def _mlp(id_short: str, value: str) -> Any:
+    if aas is None:  # pragma: no cover - handled in _require_sdk
+        return None
+    return aas.MultiLanguageProperty(id_short=id_short, value={"en": value})
+
+
+def _collection(id_short: str, elements: list[Any]) -> Any:
+    if aas is None:  # pragma: no cover - handled in _require_sdk
+        return None
+    col = aas.SubmodelElementCollection(id_short=id_short)
+    col.value.extend(elements)
+    return col
+
+
+def _list(id_short: str, elements: list[Any]) -> Any:
+    if aas is None:  # pragma: no cover - handled in _require_sdk
+        return None
+    sel = aas.SubmodelElementList(id_short=id_short)
+    sel.value.extend(elements)
+    return sel
+
+
 def _normalize_id_short(name: str) -> str:
     """Convert legacy idShort names to a standardised form."""
+
     if name in PROPERTY_NAME_MAP:
         return PROPERTY_NAME_MAP[name]
     parts = name.replace("_", " ").split()
     return "".join(p.capitalize() for p in parts)
 
 
-def _copy_identification(src: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "id": src.get("id", ""),
-        "idType": src.get("idType", "Custom"),
-    }
-
-
-def _convert_category(sm: Dict[str, Any]) -> Dict[str, Any]:
+def _convert_category(sm: Dict[str, Any]) -> Any:
     machine_type = ""
     machine_role = ""
     for elem in sm.get("submodelElements", []):
@@ -53,59 +106,42 @@ def _convert_category(sm: Dict[str, Any]) -> Dict[str, Any]:
         elif sid == "Role":
             machine_role = elem.get("value", "")
 
-    new_elem = [
-        {
-            "idShort": "MachineType",
-            "modelType": "Property",
-            "value": machine_type,
-            "valueType": "string",
-        },
-        {
-            "idShort": "MachineRole",
-            "modelType": "Property",
-            "value": machine_role,
-            "valueType": "string",
-        },
+    elements = [
+        _prop("MachineType", machine_type),
+        _prop("MachineRole", machine_role),
     ]
+    submodel = aas.Submodel(
+        id_short="Category",
+        identification=_ident(sm.get("identification", {})),
+    )
+    submodel.submodel_element.extend(elements)
+    return submodel
 
-    return {
-        "idShort": "Category",
-        "modelType": "Submodel",
-        "identification": _copy_identification(sm.get("identification", {})),
-        "submodelElements": new_elem,
-    }
 
-
-def _convert_operation(sm: Dict[str, Any]) -> Dict[str, Any]:
+def _convert_operation(sm: Dict[str, Any]) -> Any:
     status = ""
     for elem in sm.get("submodelElements", []):
         if elem.get("idShort") == "Machine_Status":
             status = elem.get("value", "")
             break
 
-    new_elem = [
-        {
-            "idShort": "MachineStatus",
-            "modelType": "Property",
-            "value": status,
-            "valueType": "string",
-        },
-        {"idShort": "ProcessOrder", "modelType": "Property", "value": 0, "valueType": "integer"},
-        {"idShort": "ProcessID", "modelType": "Property", "value": "", "valueType": "string"},
-        {"idShort": "ReplacedAASID", "modelType": "Property", "value": "", "valueType": "string"},
-        {"idShort": "Candidate", "modelType": "Property", "value": False, "valueType": "boolean"},
-        {"idShort": "Selected", "modelType": "Property", "value": False, "valueType": "boolean"},
+    elements = [
+        _prop("MachineStatus", status),
+        _prop("ProcessOrder", 0, "integer"),
+        _prop("ProcessID", ""),
+        _prop("ReplacedAASID", ""),
+        _prop("Candidate", False, "boolean"),
+        _prop("Selected", False, "boolean"),
     ]
+    submodel = aas.Submodel(
+        id_short="Operation",
+        identification=_ident(sm.get("identification", {})),
+    )
+    submodel.submodel_element.extend(elements)
+    return submodel
 
-    return {
-        "idShort": "Operation",
-        "modelType": "Submodel",
-        "identification": _copy_identification(sm.get("identification", {})),
-        "submodelElements": new_elem,
-    }
 
-
-def _convert_nameplate(sm: Dict[str, Any]) -> Dict[str, Any]:
+def _convert_nameplate(sm: Dict[str, Any]) -> Any:
     manufacturer = ""
     address = ""
     for elem in sm.get("submodelElements", []):
@@ -115,151 +151,109 @@ def _convert_nameplate(sm: Dict[str, Any]) -> Dict[str, Any]:
         elif sid in {"Physical_address", "Address"}:
             address = elem.get("value", "")
 
-    # attempt simple address split: Street, CityTown, Country
     parts = [p.strip() for p in address.split(",")]
     street = parts[0] if parts else ""
     city = parts[1] if len(parts) > 1 else ""
     national = parts[2] if len(parts) > 2 else ""
 
-    addr_info = {
-        "idShort": "AddressInformation",
-        "modelType": "SubmodelElementCollection",
-        "value": [
-            {"idShort": "Street", "modelType": "MultiLanguageProperty", "value": {"en": street}},
-            {"idShort": "Zipcode", "modelType": "MultiLanguageProperty", "value": {"en": ""}},
-            {"idShort": "CityTown", "modelType": "MultiLanguageProperty", "value": {"en": city}},
-            {"idShort": "NationalCode", "modelType": "MultiLanguageProperty", "value": {"en": national}},
+    addr_info = _collection(
+        "AddressInformation",
+        [
+            _mlp("Street", street),
+            _mlp("Zipcode", ""),
+            _mlp("CityTown", city),
+            _mlp("NationalCode", national),
         ],
-    }
+    )
 
-    new_elem = [
-        {"idShort": "URIOfTheProduct", "modelType": "Property", "value": "", "valueType": "string"},
-        {
-            "idShort": "ManufacturerName",
-            "modelType": "MultiLanguageProperty",
-            "value": {"en": manufacturer},
-        },
-        {"idShort": "ManufacturerProductDesignation", "modelType": "MultiLanguageProperty", "value": {"en": ""}},
+    elements = [
+        _prop("URIOfTheProduct", ""),
+        _mlp("ManufacturerName", manufacturer),
+        _mlp("ManufacturerProductDesignation", ""),
         addr_info,
-        {"idShort": "OrderCodeOfManufacturer", "modelType": "Property", "value": "", "valueType": "string"},
-        {"idShort": "SerialNumber", "modelType": "Property", "value": "", "valueType": "string"},
-        {"idShort": "YearOfConstruction", "modelType": "Property", "value": "", "valueType": "string"},
+        _prop("OrderCodeOfManufacturer", ""),
+        _prop("SerialNumber", ""),
+        _prop("YearOfConstruction", ""),
     ]
+    submodel = aas.Submodel(
+        id_short="Nameplate",
+        identification=_ident(sm.get("identification", {})),
+    )
+    submodel.submodel_element.extend(elements)
+    return submodel
 
-    return {
-        "idShort": "Nameplate",
-        "modelType": "Submodel",
-        "identification": _copy_identification(sm.get("identification", {})),
-        "submodelElements": new_elem,
-    }
 
-
-def _convert_technical_data(sm: Dict[str, Any], process: str) -> Dict[str, Any]:
+def _convert_technical_data(sm: Dict[str, Any], process: str) -> Any:
     tech_props = []
     for elem in sm.get("submodelElements", []):
         tech_props.append(
-            {
-                "idShort": _normalize_id_short(elem.get("idShort", "")),
-                "modelType": "Property",
-                "value": elem.get("value"),
-                "valueType": "string",
-            }
+            _prop(_normalize_id_short(elem.get("idShort", "")), elem.get("value"))
         )
 
-    technical_area = {
-        "idShort": "TechnicalPropertyAreas",
-        "modelType": "SubmodelElementCollection",
-        "value": tech_props,
-    }
-
-    process_smc = {
-        "idShort": process or "Process",
-        "modelType": "SubmodelElementCollection",
-        "value": [
-            {
-                "idShort": "GeneralInformation",
-                "modelType": "SubmodelElementCollection",
-                "value": [
-                    {"idShort": "ManufacturerName", "modelType": "Property", "value": "", "valueType": "string"},
-                    {"idShort": "ManufacturerProductDesignation", "modelType": "MultiLanguageProperty", "value": {"en": ""}},
-                    {"idShort": "ManufacturerArticleNumber", "modelType": "Property", "value": "", "valueType": "string"},
-                    {"idShort": "ManufacturerOrderCode", "modelType": "Property", "value": "", "valueType": "string"},
-                ],
-            },
-            technical_area,
+    technical_area = _collection("TechnicalPropertyAreas", tech_props)
+    general_info = _collection(
+        "GeneralInformation",
+        [
+            _prop("ManufacturerName", ""),
+            _mlp("ManufacturerProductDesignation", ""),
+            _prop("ManufacturerArticleNumber", ""),
+            _prop("ManufacturerOrderCode", ""),
         ],
-    }
+    )
+    process_smc = _collection(process or "Process", [general_info, technical_area])
+    submodel = aas.Submodel(
+        id_short="TechnicalData",
+        identification=_ident(sm.get("identification", {})),
+    )
+    submodel.submodel_element.append(process_smc)
+    return submodel
 
-    return {
-        "idShort": "TechnicalData",
-        "modelType": "Submodel",
-        "identification": _copy_identification(sm.get("identification", {})),
-        "submodelElements": [process_smc],
-    }
 
-
-def _convert_documentation(sm: Dict[str, Any]) -> Dict[str, Any]:
+def _convert_documentation(sm: Dict[str, Any]) -> Any:
     documents = []
     for elem in sm.get("submodelElements", []):
-        doc = {
-            "idShort": "Document",
-            "modelType": "SubmodelElementCollection",
-            "value": [
-                {
-                    "idShort": "DocumentId",
-                    "modelType": "SubmodelElementCollection",
-                    "value": [
-                        {"idShort": "DocumentIdentifier", "modelType": "Property", "value": elem.get("idShort"), "valueType": "string"},
-                        {"idShort": "DocumentDomainId", "modelType": "Property", "value": "", "valueType": "string"},
-                    ],
-                },
-                {"idShort": "DocumentClassifications", "modelType": "SubmodelElementList", "value": []},
-                {
-                    "idShort": "DocumentVersions",
-                    "modelType": "SubmodelElementList",
-                    "value": [
-                        {
-                            "idShort": "DocumentVersion",
-                            "modelType": "SubmodelElementCollection",
-                            "value": [
-                                {"idShort": "Language", "modelType": "Property", "value": "en", "valueType": "string"},
-                                {"idShort": "Version", "modelType": "Property", "value": "", "valueType": "string"},
-                                {"idShort": "Title", "modelType": "MultiLanguageProperty", "value": {"en": elem.get("idShort")}},
-                                {"idShort": "Description", "modelType": "MultiLanguageProperty", "value": {"en": ""}},
-                                {"idShort": "StatusValue", "modelType": "Property", "value": "", "valueType": "string"},
-                                {"idShort": "StatusSetDate", "modelType": "Property", "value": "", "valueType": "date"},
-                                {"idShort": "OrganizationShortName", "modelType": "Property", "value": "", "valueType": "string"},
-                                {"idShort": "OrganizationOfficialName", "modelType": "Property", "value": "", "valueType": "string"},
-                                {
-                                    "idShort": "DigitalFiles",
-                                    "modelType": "SubmodelElementList",
-                                    "value": [
-                                        {
-                                            "idShort": "DigitalFile",
-                                            "modelType": "SubmodelElementCollection",
-                                            "value": [
-                                                {"idShort": "FileFormat", "modelType": "Property", "value": "", "valueType": "string"},
-                                                {"idShort": "FileName", "modelType": "Property", "value": elem.get("value"), "valueType": "string"},
-                                            ],
-                                        }
-                                    ],
-                                },
-                            ],
-                        }
-                    ],
-                },
+        digital_file = _collection(
+            "DigitalFile",
+            [_prop("FileFormat", ""), _prop("FileName", elem.get("value"))],
+        )
+        doc_version = _collection(
+            "DocumentVersion",
+            [
+                _prop("Language", "en"),
+                _prop("Version", ""),
+                _mlp("Title", elem.get("idShort")),
+                _mlp("Description", ""),
+                _prop("StatusValue", ""),
+                _prop("StatusSetDate", "", "date"),
+                _prop("OrganizationShortName", ""),
+                _prop("OrganizationOfficialName", ""),
+                _list("DigitalFiles", [digital_file]),
             ],
-        }
+        )
+        versions = _list("DocumentVersions", [doc_version])
+        doc = _collection(
+            "Document",
+            [
+                _collection(
+                    "DocumentId",
+                    [
+                        _prop("DocumentIdentifier", elem.get("idShort")),
+                        _prop("DocumentDomainId", ""),
+                    ],
+                ),
+                _list("DocumentClassifications", []),
+                versions,
+            ],
+        )
         documents.append(doc)
 
-    return {
-        "idShort": "HandoverDocumentation",
-        "modelType": "Submodel",
-        "identification": _copy_identification(sm.get("identification", {})),
-        "submodelElements": [
-            {"idShort": "Documents", "modelType": "SubmodelElementList", "value": documents}
-        ],
-    }
+    docs_list = _list("Documents", documents)
+    submodel = aas.Submodel(
+        id_short="HandoverDocumentation",
+        identification=_ident(sm.get("identification", {})),
+    )
+    submodel.submodel_element.append(docs_list)
+    return submodel
 
 
 _CONVERTERS = {
@@ -270,38 +264,26 @@ _CONVERTERS = {
 }
 
 
-def _normalize_modeltypes(obj: Any) -> None:
-    """Recursively convert ``modelType`` dicts to plain strings."""
-    if isinstance(obj, dict):
-        mt = obj.get("modelType")
-        if isinstance(mt, dict) and "name" in mt:
-            obj["modelType"] = mt["name"]
-        for v in obj.values():
-            _normalize_modeltypes(v)
-    elif isinstance(obj, list):
-        for v in obj:
-            _normalize_modeltypes(v)
-
-
-def convert_file(path: str) -> Dict[str, Any]:
+def convert_file(path: str) -> Any:
     """Convert a legacy AAS JSON file and return the new environment."""
+
+    _require_sdk()
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    shell = data.get("assetAdministrationShells", [{}])[0]
-    new_shell = {
-        "idShort": shell.get("idShort", "Shell"),
-        "modelType": "AssetAdministrationShell",
-        "identification": _copy_identification(shell.get("identification", {})),
-        "asset": shell.get("asset", {}),
-        "submodels": [],
-    }
-    new_env = {
-        "assetAdministrationShells": [new_shell],
-        "submodels": [],
-        "assets": data.get("assets", []),
-        "conceptDescriptions": [],
-    }
+    shell_data = data.get("assetAdministrationShells", [{}])[0]
+    shell = aas.AssetAdministrationShell(
+        id_short=shell_data.get("idShort", "Shell"),
+        identification=_ident(shell_data.get("identification", {})),
+        asset=shell_data.get("asset", {}),
+    )
+
+    env = aas.AssetAdministrationShellEnvironment(
+        assetAdministrationShells=[shell],
+        submodels=[],
+        assets=data.get("assets", []),
+        conceptDescriptions=[],
+    )
 
     machine_type = None
     for sm in data.get("submodels", []):
@@ -312,6 +294,7 @@ def convert_file(path: str) -> Dict[str, Any]:
                     break
             break
     process = TYPE_PROCESS_MAP.get(machine_type, machine_type or "Process")
+
     for sm in data.get("submodels", []):
         cname = sm.get("idShort")
         conv = _CONVERTERS.get(cname)
@@ -322,27 +305,31 @@ def convert_file(path: str) -> Dict[str, Any]:
         else:
             continue
 
-        new_env["submodels"].append(new_sm)
-        new_env["assetAdministrationShells"][0]["submodels"].append({
-            "keys": [
-                {
-                    "type": "Submodel",
-                    "idType": new_sm["identification"]["idType"],
-                    "value": new_sm["identification"]["id"],
-                    "local": True,
-                }
-            ]
-        })
-    _normalize_modeltypes(new_env)
-    return new_env
+        env.submodels.append(new_sm)
+        shell.submodel.append(
+            aas.ModelReference(
+                [
+                    aas.Key(
+                        type=aas.KeyTypes.SUBMODEL,
+                        id_type=new_sm.identification.id_type,
+                        value=new_sm.identification.id,
+                        local=True,
+                    )
+                ]
+            )
+        )
+    return env
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert legacy AAS JSON files")
+    parser = argparse.ArgumentParser(
+        description="Convert legacy AAS JSON files using basyx-python-sdk"
+    )
     parser.add_argument("input_dir", help="Directory with legacy JSON files")
     parser.add_argument("output_dir", help="Directory to write converted files")
     args = parser.parse_args()
 
+    _require_sdk()
     os.makedirs(args.output_dir, exist_ok=True)
     for name in os.listdir(args.input_dir):
         if not name.lower().endswith(".json"):
@@ -355,7 +342,7 @@ def main() -> None:
             print(f"Failed to convert {name}: {e}")
             continue
         with open(outp, "w", encoding="utf-8") as f:
-            json.dump(env, f, ensure_ascii=False, indent=2)
+            write_aas_json_file(f, env)
         print(f"Converted {name} -> {outp}")
 
 
