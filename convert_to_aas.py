@@ -156,6 +156,10 @@ def _convert_category(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="Category",
         identification=ident,
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/Category",
+        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
@@ -185,6 +189,10 @@ def _convert_operation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="Operation",
         identification=ident,
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/Operation",
+        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
@@ -233,6 +241,10 @@ def _convert_nameplate(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="Nameplate",
         identification=ident,
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/Nameplate",
+        ),
     )
     submodel.submodel_element.extend(elements)
     return submodel
@@ -265,6 +277,10 @@ def _convert_technical_data(sm: Dict[str, Any], process: str, *, fallback_prefix
         id_=getattr(ident, "id", None),
         id_short="TechnicalData",
         identification=ident,
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/TechnicalData",
+        ),
     )
     submodel.submodel_element.append(process_smc)
     return submodel
@@ -318,6 +334,10 @@ def _convert_documentation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         id_=getattr(ident, "id", None),
         id_short="HandoverDocumentation",
         identification=ident,
+        identification=_ident(
+            sm.get("identification", {}),
+            fallback_id=f"{fallback_prefix}/HandoverDocumentation",
+        ),
     )
     submodel.submodel_element.append(docs_list)
     return submodel
