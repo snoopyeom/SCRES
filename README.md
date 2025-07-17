@@ -41,6 +41,10 @@ python convert_to_aas.py "설비 json 파일" converted
 
 Converted files will be written to the specified output directory.
 
+`convert_to_aas.py` automatically generates a fallback identifier for any
+AAS or Submodel that is missing an `id`. The fallback is derived from the file
+name, so each converted file receives deterministic IDs without manual edits.
+
 ## Building AAS with BaSyx
 
 `export_aasx.py` demonstrates how to load the normalised JSON files
