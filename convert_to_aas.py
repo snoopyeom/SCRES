@@ -147,9 +147,15 @@ def _convert_category(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         _prop("MachineType", machine_type),
         _prop("MachineRole", machine_role),
     ]
+    ident = _ident(
+        sm.get("identification", {}),
+        fallback_id=f"{fallback_prefix}/Category",
+    )
     submodel = _create(
         aas.Submodel,
+        id_=getattr(ident, "id", None),
         id_short="Category",
+        identification=ident,
         identification=_ident(
             sm.get("identification", {}),
             fallback_id=f"{fallback_prefix}/Category",
@@ -174,9 +180,15 @@ def _convert_operation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         _prop("Candidate", False, "boolean"),
         _prop("Selected", False, "boolean"),
     ]
+    ident = _ident(
+        sm.get("identification", {}),
+        fallback_id=f"{fallback_prefix}/Operation",
+    )
     submodel = _create(
         aas.Submodel,
+        id_=getattr(ident, "id", None),
         id_short="Operation",
+        identification=ident,
         identification=_ident(
             sm.get("identification", {}),
             fallback_id=f"{fallback_prefix}/Operation",
@@ -220,9 +232,15 @@ def _convert_nameplate(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         _prop("SerialNumber", ""),
         _prop("YearOfConstruction", ""),
     ]
+    ident = _ident(
+        sm.get("identification", {}),
+        fallback_id=f"{fallback_prefix}/Nameplate",
+    )
     submodel = _create(
         aas.Submodel,
+        id_=getattr(ident, "id", None),
         id_short="Nameplate",
+        identification=ident,
         identification=_ident(
             sm.get("identification", {}),
             fallback_id=f"{fallback_prefix}/Nameplate",
@@ -250,9 +268,15 @@ def _convert_technical_data(sm: Dict[str, Any], process: str, *, fallback_prefix
         ],
     )
     process_smc = _collection(process or "Process", [general_info, technical_area])
+    ident = _ident(
+        sm.get("identification", {}),
+        fallback_id=f"{fallback_prefix}/TechnicalData",
+    )
     submodel = _create(
         aas.Submodel,
+        id_=getattr(ident, "id", None),
         id_short="TechnicalData",
+        identification=ident,
         identification=_ident(
             sm.get("identification", {}),
             fallback_id=f"{fallback_prefix}/TechnicalData",
@@ -301,9 +325,15 @@ def _convert_documentation(sm: Dict[str, Any], *, fallback_prefix: str) -> Any:
         documents.append(doc)
 
     docs_list = _list("Documents", documents)
+    ident = _ident(
+        sm.get("identification", {}),
+        fallback_id=f"{fallback_prefix}/HandoverDocumentation",
+    )
     submodel = _create(
         aas.Submodel,
+        id_=getattr(ident, "id", None),
         id_short="HandoverDocumentation",
+        identification=ident,
         identification=_ident(
             sm.get("identification", {}),
             fallback_id=f"{fallback_prefix}/HandoverDocumentation",
