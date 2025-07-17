@@ -32,9 +32,10 @@ This approach is more reliable than depending on IRDI codes.
 
 ## Converting legacy AAS files
 
-`convert_to_aas.py` converts the irregular JSON files found in `설비 json 파일/` to a simplified structure that matches the normalised AAS layout.  Run the script with the input and output directories:
+`convert_to_aas.py` converts the irregular JSON files found in `설비 json 파일/` to a simplified structure that matches the normalised AAS layout.  The tool relies on `basyx-python-sdk` to write the JSON output, so install the package first.
 
 ```bash
+pip install basyx-python-sdk
 python convert_to_aas.py "설비 json 파일" converted
 ```
 
