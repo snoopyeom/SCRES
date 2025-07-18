@@ -49,33 +49,47 @@ class Machine:
     status: str
     address: str
 
-def upload_aas_documents(input_dir: str, mongo_uri: str, db_name: str, collection_name: str):
-    client = MongoClient(mongo_uri)
-    db = client[db_name]
-    collection = db[collection_name]
+def upload_aas_documents(input_dir: str, mongo_uri: str, db_name: str, collection_name: str) -> int:
+    """Upload every JSON file in ``input_dir`` into MongoDB.
+
+    Returns the number of successfully inserted documents.
+    """
+    if not os.path.isdir(input_dir):
+        raise FileNotFoundError(f"input directory not found: {input_dir}")
+
+    try:
+        client = MongoClient(mongo_uri)
+        db = client[db_name]
+        collection = db[collection_name]
+    except Exception as exc:  # pragma: no cover - connection issues
+        logger.error("MongoDB 연결 실패: %s", exc)
+        raise
+
     collection.delete_many({})
 
+    inserted = 0
     for filename in os.listdir(input_dir):
-        if not filename.endswith(".json"):
+        if not filename.lower().endswith(".json"):
             continue
         filepath = os.path.join(input_dir, filename)
         with open(filepath, "r", encoding="utf-8") as f:
             try:
                 json_data = json.load(f)
                 if "assetAdministrationShells" not in json_data:
-                    logger.warning(f"assetAdministrationShells 누락: {filename}")
+                    logger.warning("assetAdministrationShells 누락: %s", filename)
                     continue
                 if not json_data.get("submodels"):
-                    logger.warning(f"submodels 누락: {filename}")
+                    logger.warning("submodels 누락: %s", filename)
                     continue
-                doc = {
-                    "filename": filename,
-                    "json": json_data
-                }
-                collection.insert_one(doc)
-                logger.info(f"업로드 완료: {filename}")
-            except Exception as e:
-                logger.warning(f"업로드 실패: {filename} - {e}")
+                collection.insert_one({"filename": filename, "json": json_data})
+                inserted += 1
+                logger.debug("업로드 완료: %s", filename)
+            except Exception as exc:  # pragma: no cover - invalid file
+                logger.warning("업로드 실패: %s - %s", filename, exc)
+
+    client.close()
+    logger.info("총 %d개 문서 업로드 완료", inserted)
+    return inserted
 
 
 def _find_address(elements):
@@ -120,6 +134,8 @@ def _find_type_process(elements):
 def load_machines_from_mongo(mongo_uri: str, db_name: str, collection_name: str) -> Dict[str, Machine]:
     machines: Dict[str, Machine] = {}
     geolocator = Nominatim(user_agent="aas_pathfinder") if Nominatim else None
+    if not geolocator:
+        logger.debug("geopy not available; 주소 좌표 변환을 건너뜁니다.")
 
     client = MongoClient(mongo_uri)
     db = client[db_name]
@@ -163,10 +179,12 @@ def load_machines_from_mongo(mongo_uri: str, db_name: str, collection_name: str)
         latlon = ADDRESS_COORDS.get(address)
         if latlon is None and geolocator:
             try:
-                location = geolocator.geocode(address)
+                location = geolocator.geocode(address, timeout=5)
                 if location:
                     latlon = (location.latitude, location.longitude)
-            except GeocoderServiceError:
+                    ADDRESS_COORDS[address] = latlon
+            except Exception as exc:  # pragma: no cover - network issues
+                logger.warning("주소 변환 실패: %s - %s", address, exc)
                 continue
 
         if not latlon:
@@ -186,6 +204,7 @@ def load_machines_from_mongo(mongo_uri: str, db_name: str, collection_name: str)
         if machine.status.lower() == "running":
             machines[node_name] = machine
 
+    client.close()
     return machines
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -257,7 +276,8 @@ def main():
     logging.basicConfig(level=log_level)
 
     if args.upload_dir:
-        upload_aas_documents(args.upload_dir, args.mongo_uri, args.db, args.collection)
+        num = upload_aas_documents(args.upload_dir, args.mongo_uri, args.db, args.collection)
+        logger.info("%d documents uploaded", num)
 
     machines = load_machines_from_mongo(args.mongo_uri, args.db, args.collection)
     if not machines:
