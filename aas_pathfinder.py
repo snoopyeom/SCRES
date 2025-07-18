@@ -280,7 +280,8 @@ def dijkstra_path(graph: Graph, start: str, goal: str) -> Tuple[List[str], float
     return path, dist[goal]
 
 
-def main():
+def main() -> None:
+    """Entry point used when running this module as a script."""
     parser = argparse.ArgumentParser(description="AAS path finder")
     parser.add_argument(
         "--aas-dir",
