@@ -238,6 +238,13 @@ def main() -> None:
         for r in results:
             writer.writerow(r)
 
+    # Print table to stdout in a compact, CSV-like layout
+    header = ["algorithm", "path", "distance_km", "time_s", "optimal", "iterations"]
+    print("\t".join(header))
+    for alg, path, dist, tm, opt, iters in results:
+        time_str = f"{tm:.2E}" if tm else "0"
+        print(f"{alg}\t{path}\t{dist}\t{time_str}\t{str(opt).upper()}\t{iters}")
+
     for r in results:
         alg, path, dist, tm, opt, iters = r
         logger.info(
