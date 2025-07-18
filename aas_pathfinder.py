@@ -179,10 +179,12 @@ def load_machines_from_mongo(mongo_uri: str, db_name: str, collection_name: str)
         latlon = ADDRESS_COORDS.get(address)
         if latlon is None and geolocator:
             try:
-                location = geolocator.geocode(address)
+                location = geolocator.geocode(address, timeout=5)
                 if location:
                     latlon = (location.latitude, location.longitude)
-            except GeocoderServiceError:
+                    ADDRESS_COORDS[address] = latlon
+            except Exception as exc:  # pragma: no cover - network issues
+                logger.warning("주소 변환 실패: %s - %s", address, exc)
                 continue
 
         if not latlon:
