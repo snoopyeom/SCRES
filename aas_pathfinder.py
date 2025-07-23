@@ -4,13 +4,12 @@ import logging
 import os
 from math import radians, sin, cos, sqrt, atan2
 from typing import Dict, Tuple, List
-
 from dataclasses import dataclass
 from pymongo import MongoClient
 
 from graph import Graph, Node
 from a_star import AStar
-
+from typing import Optional, Dict, Any
 logger = logging.getLogger("__main__")
 
 try:
@@ -20,11 +19,18 @@ except Exception:
     Nominatim = None
     GeocoderServiceError = Exception
 
-ADDRESS_COORDS: Dict[str, Tuple[float, float]] = {
-    "6666 W 66th St, Chicago, Illinois": (41.772, -87.782),
-    "2904 Scott Blvd, Santa Clara, California": (37.369, -121.972),
-}
+# 주소 → 위도/경도 변환 함수
+def geocode_address(address: str):
+    geolocator = Nominatim(user_agent="aas_locator")
+    try:
+        location = geolocator.geocode(address)
+        if location:
+            return (location.latitude, location.longitude)
+    except:
+        pass
+    return None
 
+# 공정 매핑 테이블
 IRDI_PROCESS_MAP = {
     "0173-1#01-AKJ741#017": "Turning",
     "0173-1#01-AKJ783#017": "Milling",
@@ -39,173 +45,196 @@ TYPE_PROCESS_MAP = {
     "Flat surface grinder": "Grinding",
     "Cylindrical grinder": "Grinding",
     "Assembly System": "Assembly",
+    "그라인더": "Grinding",
 }
 
 @dataclass
 class Machine:
     name: str
-    coords: Tuple[float, float]
     process: str
+    coords: Tuple[float, float]
     status: str
-    address: str
+    data: Optional[Dict[str, Any]] = None  # ← 이 줄 추가
 
-def upload_aas_documents(input_dir: str, mongo_uri: str, db_name: str, collection_name: str) -> int:
-    """Upload every JSON file in ``input_dir`` into MongoDB.
+# ────────────────────────────────────────────────────────────────
+# AAS 문서 업로드 함수 추가
+def upload_aas_documents(upload_dir: str, mongo_uri: str, db_name: str, collection_name: str) -> int:
+    client = MongoClient(mongo_uri)
+    db = client[db_name]
+    collection = db[collection_name]
 
-    Returns the number of successfully inserted documents.
-    """
-    if not os.path.isdir(input_dir):
-        raise FileNotFoundError(f"input directory not found: {input_dir}")
-
-    try:
-        client = MongoClient(mongo_uri)
-        db = client[db_name]
-        collection = db[collection_name]
-    except Exception as exc:  # pragma: no cover - connection issues
-        logger.error("MongoDB 연결 실패: %s", exc)
-        raise
-
-    collection.delete_many({})
-
-    inserted = 0
-    for filename in os.listdir(input_dir):
-        if not filename.lower().endswith(".json"):
+    uploaded = 0
+    for filename in os.listdir(upload_dir):
+        if not filename.endswith(".json"):
             continue
-        filepath = os.path.join(input_dir, filename)
-        with open(filepath, "r", encoding="utf-8") as f:
-            try:
-                json_data = json.load(f)
-                if "assetAdministrationShells" not in json_data:
-                    logger.warning("assetAdministrationShells 누락: %s", filename)
-                    continue
-                if not json_data.get("submodels"):
-                    logger.warning("submodels 누락: %s", filename)
-                    continue
-                collection.insert_one({"filename": filename, "json": json_data})
-                inserted += 1
-                logger.debug("업로드 완료: %s", filename)
-            except Exception as exc:  # pragma: no cover - invalid file
-                logger.warning("업로드 실패: %s - %s", filename, exc)
+        path = os.path.join(upload_dir, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = json.load(f)
 
-    client.close()
-    logger.info("총 %d개 문서 업로드 완료", inserted)
-    return inserted
+                # 🔧 전체 JSON 내용을 'json' 필드에 정확히 저장하도록 수정
+                collection.replace_one(
+                    {"filename": filename},
+                    {"filename": filename, "json": content},
+                    upsert=True
+                )
+                uploaded += 1
+        except Exception as e:
+            logger.warning("⚠️ %s 업로드 실패: %s", filename, str(e))
+
+    logger.info("✅ 총 %d개 문서 업로드 완료", uploaded)
+    return uploaded
 
 
-def _find_address(elements):
-    for elem in elements:
-        if elem.get("idShort") in {"Location", "Address", "Physical_address"}:
-            val = elem.get("value")
-            if isinstance(val, str):
-                return val
-        if isinstance(elem.get("submodelElements"), list):
-            addr = _find_address(elem["submodelElements"])
-            if addr:
-                return addr
-    return None
+# ────────────────────────────────────────────────────────────────
 
-def _find_status(elements):
+def _find_address(elements, depth=0):
+    prefix = "  " * depth
+
     for elem in elements:
         id_short = elem.get("idShort", "").lower()
-        if "status" in id_short:
+        print(f"{prefix}🔍 [depth {depth}] 탐색 중 idShort: {id_short}")
+
+        if id_short == "addressinformation":
+            value_list = elem.get("value", [])
+            if isinstance(value_list, list):
+                for item in value_list:
+                    sub_id = item.get("idShort", "").lower()
+                    if sub_id == "street":
+                        sub_val = item.get("value")
+                        print(f"{prefix}    🏡 Street 값: {sub_val}")
+                        if isinstance(sub_val, list):
+                            for s in sub_val:
+                                if isinstance(s, dict) and "text" in s:
+                                    print(f"{prefix}    ✅ Street → text: {s['text']}")
+                                    return s["text"]
+
+        if isinstance(elem.get("submodelElements"), list):
+            print(f"{prefix}↘️ 재귀 진입: {id_short}")
+            addr = _find_address(elem["submodelElements"], depth + 1)
+            if addr:
+                return addr
+
+    print(f"{prefix}⛔ [depth {depth}] 주소 미발견 종료")
+    return None
+
+
+
+
+def explore_address_structure(elements, depth=0):
+    prefix = "  " * depth
+    for elem in elements:
+        id_short = elem.get("idShort", "")
+        print(f"{prefix}🔎 idShort: {id_short}")
+        if "value" in elem:
+            val = elem["value"]
+            print(f"{prefix}📦 value type: {type(val)}, value: {val}")
+        if "submodelElements" in elem:
+            print(f"{prefix}🔁 재귀 진입 → {id_short}")
+            explore_address_structure(elem["submodelElements"], depth + 1)
+
+
+
+
+
+
+def _find_name(elements):
+    for elem in elements:
+        if elem.get("idShort") in ["MachineName", "Name"]:
             val = elem.get("value")
             if isinstance(val, str):
                 return val
+            if isinstance(val, list) and isinstance(val[0], dict):
+                return val[0].get("text")
         if isinstance(elem.get("submodelElements"), list):
-            status = _find_status(elem["submodelElements"])
-            if status:
-                return status
+            name = _find_name(elem["submodelElements"])
+            if name:
+                return name
     return None
 
-def _find_type_process(elements):
+def _find_process(elements):
     for elem in elements:
-        if elem.get("idShort") == "Type":
+        if elem.get("idShort") == "MachineType":
             val = elem.get("value")
             if isinstance(val, str):
                 proc = TYPE_PROCESS_MAP.get(val)
                 if proc:
                     return proc
+        if elem.get("idShort") == "ProcessId":
+            val = elem.get("value")
+            if isinstance(val, str):
+                proc = IRDI_PROCESS_MAP.get(val)
+                if proc:
+                    return proc
         if isinstance(elem.get("submodelElements"), list):
-            proc = _find_type_process(elem["submodelElements"])
+            proc = _find_process(elem["submodelElements"])
             if proc:
                 return proc
-    return None
+    return "Unknown"
 
-def load_machines_from_mongo(mongo_uri: str, db_name: str, collection_name: str) -> Dict[str, Machine]:
-    machines: Dict[str, Machine] = {}
-    geolocator = Nominatim(user_agent="aas_pathfinder") if Nominatim else None
-    if not geolocator:
-        logger.debug("geopy not available; 주소 좌표 변환을 건너뜁니다.")
+# ────────────────────────────────────────────────────────────────
 
+def load_machines_from_mongo(mongo_uri, db_name, collection_name, verbose=False):
     client = MongoClient(mongo_uri)
     db = client[db_name]
     collection = db[collection_name]
+    machines = {}
 
-    for doc in collection.find({}):
-        data = doc.get("json", {})
-        name = doc.get("filename", "unknown")
-        node_name = os.path.splitext(name)[0]
-
-        shells = data.get("assetAdministrationShells", [])
+    for doc in collection.find():
+        aas = doc.get("json", {})
+        shells = aas.get("assetAdministrationShells", [])
         if not shells:
             continue
         shell = shells[0]
 
-        address = None
-        status = None
-        process = None
-        for submodel in data.get("submodels", []):
-            elems = submodel.get("submodelElements", [])
-            if address is None:
-                address = _find_address(elems)
-            if status is None:
-                status = _find_status(elems)
-            if submodel.get("idShort") == "Category" and process is None:
-                process = _find_type_process(elems)
-            sem_id = (
-                submodel.get("semanticId", {})
-                .get("keys", [{}])[0]
-                .get("value")
-            )
-            if sem_id in IRDI_PROCESS_MAP and process is None:
-                process = IRDI_PROCESS_MAP[sem_id]
-            if address and status and process:
+        name = shell.get("idShort", "Unnamed")
+        asset_info = shell.get("assetInformation", {})
+        status = asset_info.get("defaultThumbnail", {}).get("status", "unknown")
+        process = TYPE_PROCESS_MAP.get(name, "Unknown")
+
+        # 디버깅 로그
+        if verbose:
+            print(f"[DEBUG] submodel 참조: {shell.get('submodels')}")
+            for sm in aas.get("submodels", []):
+                print(f"[DEBUG] 실제 submodel idShort: {sm.get('idShort')}")
+
+        addr = None
+        for ref in shell.get("submodels", []):
+            ref_id = None
+            keys = ref.get("keys", [])
+            for k in keys:
+                if k.get("type") == "Submodel":
+                    ref_id = k.get("value", "").split("/")[-1]
+                    break
+
+            if not ref_id:
+                continue
+
+            for submodel in aas.get("submodels", []):
+                if submodel.get("idShort") == ref_id:
+                    addr = _find_address(submodel.get("submodelElements", []))
+                    if addr:
+                        break
+            if addr:
                 break
 
-        if not address:
-            continue
-        address = address.strip()
+        coords = geocode_address(addr) if addr else None
+        if coords:
+            # ⬇️ data 필드에 전체 AAS JSON 저장
+            machines[name] = Machine(
+                name=name,
+                process=process,
+                coords=coords,
+                status=status,
+                data=aas  # 전체 AAS JSON을 data로 저장
+            )
 
-        latlon = ADDRESS_COORDS.get(address)
-        if latlon is None and geolocator:
-            try:
-                location = geolocator.geocode(address, timeout=5)
-                if location:
-                    latlon = (location.latitude, location.longitude)
-                    ADDRESS_COORDS[address] = latlon
-            except Exception as exc:  # pragma: no cover - network issues
-                logger.warning("주소 변환 실패: %s - %s", address, exc)
-                continue
-
-        if not latlon:
-            continue
-        if status is None:
-            status = "Unknown"
-        if process is None:
-            sid = shell.get("idShort", "").lower()
-            if "forging" in sid:
-                process = "Forging"
-            elif "assembly" in sid:
-                process = "Assembly"
-            else:
-                continue
-
-        machine = Machine(node_name, latlon, process, status, address)
-        if machine.status.lower() == "running":
-            machines[node_name] = machine
-
-    client.close()
     return machines
+
+
+
+
+# ────────────────────────────────────────────────────────────────
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
@@ -263,24 +292,52 @@ def dijkstra_path(graph: Graph, start: str, goal: str) -> Tuple[List[str], float
     path.reverse()
     return path, dist[goal]
 
+# ────────────────────────────────────────────────────────────────
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--upload-dir", type=str, help="AAS JSON 파일이 있는 디렉토리")
+    parser.add_argument("--upload-dir", type=str)
     parser.add_argument("--mongo-uri", default="mongodb://localhost:27017")
     parser.add_argument("--db", default="test_db")
     parser.add_argument("--collection", default="aas_documents")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--explore-address", action="store_true", help="주소 구조만 탐색하고 종료")
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level)
 
+    # ✅ explore-address가 켜져 있으면 여기서 바로 처리하고 종료
+    if args.explore_address:
+        client = MongoClient(args.mongo_uri)
+        db = client[args.db]
+        collection = db[args.collection]
+        for doc in collection.find().limit(1):
+            shell = doc.get("json", {}).get("assetAdministrationShells", [])[0]
+            for ref in shell.get("submodels", []):
+                submodel_id = ref.get("idShort")
+                print(f"🔍 서브모델: {submodel_id}")
+                for submodel in doc["json"].get("submodels", []):
+                    if submodel.get("idShort") == submodel_id:
+                        print(f"✅ {submodel_id} 구조 탐색 시작")
+                        explore_address_structure(submodel.get("submodelElements", []))
+                        break
+        return  # ✅ 탐색만 하고 프로그램 종료
+
     if args.upload_dir:
         num = upload_aas_documents(args.upload_dir, args.mongo_uri, args.db, args.collection)
         logger.info("%d documents uploaded", num)
 
-    machines = load_machines_from_mongo(args.mongo_uri, args.db, args.collection)
-    if not machines:
+    machines = load_machines_from_mongo(args.mongo_uri, args.db, args.collection, verbose=args.verbose)
+
+    # ✅ 구조 확인용: 첫 machine의 원본 AAS JSON 구조를 출력
+    if machines:
+        import json
+        sample = list(machines.values())[0]
+        logger.info("🔍 샘플 장비: %s (%s)", sample.name, sample.process)
+        print("📂 전체 AAS 구조 (주소 파싱 디버깅용):")
+        print(json.dumps(sample.data, indent=2))
+    else:
         logger.info("No running machines with valid locations found.")
         return
 
@@ -323,6 +380,7 @@ def main():
         logger.info("Saved flow visualisation to 'process_flow.html'.")
     except Exception:
         logger.info("folium not available; skipping visualisation.")
+
 
 if __name__ == "__main__":
     main()
