@@ -59,6 +59,12 @@ class Machine:
 # ────────────────────────────────────────────────────────────────
 # AAS 문서 업로드 함수 추가
 def upload_aas_documents(upload_dir: str, mongo_uri: str, db_name: str, collection_name: str) -> int:
+    """Upload all ``.json`` files in ``upload_dir`` to MongoDB.
+
+    The raw JSON string is kept alongside the parsed object so files with
+    unconventional keys remain intact.
+    """
+
     client = MongoClient(mongo_uri)
     db = client[db_name]
     collection = db[collection_name]
@@ -70,16 +76,20 @@ def upload_aas_documents(upload_dir: str, mongo_uri: str, db_name: str, collecti
         path = os.path.join(upload_dir, filename)
         try:
             with open(path, "r", encoding="utf-8") as f:
-                content = json.load(f)
+                raw = f.read()
+            try:
+                content = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                logger.warning("⚠️ %s JSON 파싱 실패: %s", filename, exc)
+                continue
 
-                # 🔧 전체 JSON 내용을 'json' 필드에 정확히 저장하도록 수정
-                collection.replace_one(
-                    {"filename": filename},
-                    {"filename": filename, "json": content},
-                    upsert=True
-                )
-                uploaded += 1
-        except Exception as e:
+            collection.replace_one(
+                {"filename": filename},
+                {"filename": filename, "json": content, "raw": raw},
+                upsert=True,
+            )
+            uploaded += 1
+        except Exception as e:  # pragma: no cover - unexpected errors
             logger.warning("⚠️ %s 업로드 실패: %s", filename, str(e))
 
     logger.info("✅ 총 %d개 문서 업로드 완료", uploaded)
